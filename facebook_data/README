@@ -1,0 +1,4 @@
+---=== NOTES ===----
+
+all.edges.sorted is merely the concatenation of edge files, and 
+therefore does not contain the edges implied by the egos. 
