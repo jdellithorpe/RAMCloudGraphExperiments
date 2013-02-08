@@ -1,4 +1,4 @@
 sandy
 =====
 
-A graph computation framework for RAMCloud
+A graph computation framework
