@@ -57,16 +57,16 @@ def main():
                         queue.put(v)
                         shortest_path[v] = (path_to_u + "->" + v, dist_to_u + 1)
                 else:
-                    rc.write(graph_tableid, u, value[0:-2] + str(dist_to_u) + ' ' + path_to_u)
+                    rc.write(graph_tableid, u, value[0:-2] + path_to_u + ' ' + str(dist_to_u))
         except:
             # this node is a leaf                   
-            rc.write(graph_tableid, u, str(dist_to_u) + ' ' + path_to_u)
+            rc.write(graph_tableid, u, path_to_u + ' ' + str(dist_to_u))
 
     # show us the graph
-    #for i in range(1,4038):
+    #for node_id in sorted(shortest_path.keys()):
     #    try:
-    #        print str(i) + ": ",
-    #        print rc.read(graph_tableid, str(i)) 
+    #        print node_id + ":",
+    #        print rc.read(graph_tableid, node_id)[0].split(' ')[-1] 
     #    except:
     #        print " "
 
