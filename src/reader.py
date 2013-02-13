@@ -25,7 +25,7 @@ def main():
     key = ""
     value = ""
     for edge in graph_edges:
-        edge_src, edge_dst = edge.strip('\n').split(' ')
+        edge_src, edge_dst = edge.strip('\n').split('\t')
         if( edge_src == key ):
             value = value + edge_dst + ' '
         else:
