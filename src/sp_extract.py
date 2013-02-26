@@ -16,7 +16,8 @@ def main():
     for nodeid in range(int(start_key), int(end_key) + 1):
       try:
         value, version = rc.read(graph_tableid, str(nodeid))
-        print str(nodeid) + ": " + value.split(' ')[-1]
+        if value.split(' ')[-1] != "-1":
+          print str(nodeid) + ": " + value.split(' ')[-1]
       except:
         pass
 
