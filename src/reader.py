@@ -20,6 +20,9 @@ def main():
     graph_filename = sys.argv[1]
     graph_file = open(graph_filename, 'r')
     
+    # get source node
+    src_node = sys.argv[2]
+
     # read graph into ramcloud
     graph_edges = graph_file.readlines()
     key = ""
@@ -30,11 +33,17 @@ def main():
             value = value + edge_dst + ' '
         else:
             if( key ):
+              if( key == src_node ):
+                rc.write(graph_tableid, key, value + "0")
+              else:
                 rc.write(graph_tableid, key, value + "-1")
             key = edge_src
             value = edge_dst + ' '
     if( key ):
-        rc.write(graph_tableid, key, value + "-1")
+        if( key == src_node ):
+          rc.write(graph_tableid, key, value + "0")
+        else:
+          rc.write(graph_tableid, key, value + "-1")
 
 if __name__ == '__main__':
     main()
