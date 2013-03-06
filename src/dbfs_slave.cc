@@ -50,8 +50,9 @@ int main(int argc, char* argv[]) {
         // keep polling
         continue;
       }
-    }
-    
+    } // done polling sync bit
+
+    // go through every node in the partition    
     bool made_an_update = false;
     for( uint64_t node = start_node; node <= end_node; node++ ) {
       // make string out of node number
@@ -152,8 +153,8 @@ int main(int argc, char* argv[]) {
               // continue on to the next edge
               break;
             }
-          } // while loop
-        } // edge iteration for loop
+          } // while loop for scoping out a particular neighbor
+        } // neighbor iteration for loop
       } else {
         // our distance is Inf, or we have no neighbors
         // so do nothing in this case, move on to next node in our partition
@@ -196,7 +197,7 @@ int main(int argc, char* argv[]) {
       
       // we won the write race
       break;
-    }
+    } // write the done vector
 
     // set the sync bit back to one
     while(1) {
@@ -223,8 +224,8 @@ int main(int argc, char* argv[]) {
       }
 
       break;
-    }
+    } // wrie the sync vector
   } // program while loop
 
   return 0;
-}
+} // end of program
