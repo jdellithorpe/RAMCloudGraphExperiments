@@ -37,16 +37,5 @@ def main():
             # this node is a leaf                   
             rc.write(graph_tableid, u, path_to_u + ' ' + str(dist_to_u))
 
-    # show us the graph
-    #for node_id in sorted(shortest_path.keys()):
-    #    try:
-    #        print node_id + ":",
-    #        print rc.read(graph_tableid, node_id)[0].split(' ')[-1] 
-    #    except:
-    #        print " "
-
-    # drop graph table from ramcloud
-    #rc.drop_table(GRAPH_TABLE_NAME)
-
 if __name__ == '__main__':
     main()
