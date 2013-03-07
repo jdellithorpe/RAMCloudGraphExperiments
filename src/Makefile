@@ -14,4 +14,4 @@ scratchwork: scratchwork.cc
 	./scratchwork
 
 clean:
-	rm bfs scratchwork *.o
+	rm bfs scratchwork *.o *.out
