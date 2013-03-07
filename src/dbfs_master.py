@@ -4,7 +4,7 @@ import ramcloud
 import subprocess
 
 GRAPH_TABLE_NAME = "graph"
-COORDINATOR_LOCATION = "fast+udp:host=127.0.0.1,port=12246"
+COORDINATOR_LOCATION = "infrc:host=192.168.1.101,port=12246"
 SYNC_VEC_KEY = "sync"
 DONE_VEC_KEY = "done"
 
@@ -39,15 +39,15 @@ def main():
       end_node = start_node + node_allocation - 1
       nodes_allocated += node_allocation    
 
-      print "ssh jdellit@rc35 ~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i-1)
+      print "ssh jdellit@rc" + str(i).zfill(2) + " ~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i-1)
 
-      pid_list.append(subprocess.Popen(["ssh", "jdellit@rc35", "~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i-1) ], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE))
+#      pid_list.append(subprocess.Popen(["ssh", "jdellit@rc01", "~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i-1) ], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE))
 
-#      pid_list.append(subprocess.Popen(["ssh", "jdellit@rc" + str(i).zfill(2), "~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i) ], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE))
+      pid_list.append(subprocess.Popen(["ssh", "jdellit@rc" + str(i).zfill(2), "~/sandy/src/dbfs_slave " + str(start_node) + " " + str(end_node) + " " + str(i-1) ], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE))
 
     while(1):
       sync_vector, version = rc.read(graph_tableid, SYNC_VEC_KEY)
-      # print "sync: " + sync_vector + " ",
+      print "sync: " + sync_vector + " ",
       if sync_vector == str(0).zfill(num_slaves):
         done_vector, version = rc.read(graph_tableid, DONE_VEC_KEY)
         print "done: " + done_vector
@@ -57,8 +57,8 @@ def main():
           break;
         else:
           rc.write(graph_tableid, SYNC_VEC_KEY, bin((1<<num_slaves)-1)[2:]) 
-      # else:
-        # print " "
+      else:
+        print " "
     
     for i in range(0,num_slaves):
       print "waiting for " + str(i) + "... ",
