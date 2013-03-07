@@ -2,7 +2,7 @@ import sys
 import ramcloud
 
 GRAPH_TABLE_NAME = "graph"
-COORDINATOR_LOCATION = "fast+udp:host=127.0.0.1,port=12246"
+COORDINATOR_LOCATION = "infrc:host=192.168.1.101,port=12246"
 
 def main():
     # get connected to ramcloud
