@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     } // done polling sync bit
 
     // go through every node in the partition    
-    bool made_an_update = false;
+    bool made_an_update = true;
     for( uint64_t node = start_node; node <= end_node; node++ ) {
       // make string out of node number
       string u = boost::lexical_cast<std::string>(node);
