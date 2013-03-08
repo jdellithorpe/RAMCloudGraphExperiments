@@ -17,6 +17,9 @@ int main(int argc, char* argv[]) {
   std::set<string> seen_list;
   string source(argv[1]);
 
+  client.dropTable(DIST_TABLE_NAME);
+  client.createTable(DIST_TABLE_NAME);
+
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
   dist_tableid = client.getTableId(DIST_TABLE_NAME);
 
