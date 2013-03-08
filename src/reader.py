@@ -30,11 +30,11 @@ def main():
             value = value + edge_dst + ' '
         else:
             if( key ):
-              rc.write(graph_tableid, key, value + "-1")
+              rc.write(graph_tableid, key, value[0:-1])
             key = edge_src
             value = edge_dst + ' '
     if( key ):
-        rc.write(graph_tableid, key, value + "-1")
+        rc.write(graph_tableid, key, value[0:-1])
 
 if __name__ == '__main__':
     main()
