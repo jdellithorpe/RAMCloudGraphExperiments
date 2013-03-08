@@ -12,15 +12,10 @@ using namespace RAMCloud;
 int main(int argc, char* argv[]) { 
   uint64_t graph_tableid;
 
-  // create ramcloud client and connect
   RamCloud client(COORDINATOR_LOCATION);
  
-  // get the graph table id
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
 
-  //std::cout << graph_tableid << "\n";
-
-  // run bfs on the graph
   std::queue<pair<string,int>> queue;
   std::set<string> seen_list;
 
@@ -37,8 +32,6 @@ int main(int argc, char* argv[]) {
     string dist_to_u_str = ss.str();
     queue.pop();
 
-    //std::cout << "processing: " << u << "\n";
-    
     try {
       client.read(graph_tableid, u.c_str(), u.length(), &buffer);
       
