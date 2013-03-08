@@ -5,7 +5,7 @@
 #include "RamCloud.h"
 
 #define GRAPH_TABLE_NAME "graph"
-#define COORDINATOR_LOCATION "fast+udp:host=127.0.0.1,port=12246"
+#define COORDINATOR_LOCATION "infrc:host=192.168.1.101,port=12246"
 
 using namespace RAMCloud;
 
