@@ -19,10 +19,13 @@ int main(int argc, char* argv[]) {
   std::set<string> seen_list;
   string source(argv[1]);
   uint64_t stat_time_alg_start;
+  uint64_t stat_time_alg_acc;
   uint64_t stat_time_read_start;
   uint64_t stat_time_read_acc;
   uint64_t stat_time_write_start;
   uint64_t stat_time_write_acc;
+  uint64_t stat_time_edge_trav_start;
+  uint64_t stat_time_edge_trav_acc;
   uint64_t stat_bytes_read_acc;
   uint64_t stat_nodes_read_acc;
   uint64_t stat_nodes_write_acc;
@@ -53,8 +56,10 @@ int main(int argc, char* argv[]) {
   uint32_t buf_len;
   std::vector<string> edge_list;
 
+  stat_time_alg_acc = 0;
   stat_time_read_acc = 0;
   stat_time_write_acc = 0;
+  stat_time_edge_trav_acc = 0;
   stat_bytes_read_acc = 0;
   stat_nodes_read_acc = 0;
   stat_nodes_write_acc = 0;
@@ -76,14 +81,14 @@ int main(int argc, char* argv[]) {
     }
     stat_time_read_acc += Cycles::rdtsc() - stat_time_read_start;
     stat_nodes_read_acc++;
-    
+   
     buf_len = rc_read_buf.getTotalLength();
-
-    stat_bytes_read_acc += buf_len;
-
     rc_read_str = string(static_cast<const char*>(rc_read_buf.getRange(0, buf_len)), buf_len);
     boost::split(edge_list, rc_read_str, boost::is_any_of(" "));
     
+    stat_bytes_read_acc += buf_len;
+
+    stat_time_edge_trav_start = Cycles::rdtsc();
     for(  std::vector<string>::iterator it = edge_list.begin(); 
           it != edge_list.end();
           ++it ) {
@@ -105,10 +110,16 @@ int main(int argc, char* argv[]) {
         seen_list.insert(*it);
       }
     }
+    stat_time_edge_trav_acc += Cycles::rdtsc() - stat_time_edge_trav_start;
   }
-  LOG(NOTICE, "Total time for algorithm execution: %f seconds", Cycles::toSeconds(Cycles::rdtsc() - stat_time_alg_start));
+  stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
+  
+  LOG(NOTICE, "Total time for algorithm execution: %f seconds", Cycles::toSeconds(stat_time_alg_acc));
   LOG(NOTICE, "Total time for reading graph edges: %f seconds", Cycles::toSeconds(stat_time_read_acc));
   LOG(NOTICE, "Total time for writing node distances: %f seconds", Cycles::toSeconds(stat_time_write_acc));
+  LOG(NOTICE, "Total time for managing local data structures: %f seconds", Cycles::toSeconds(stat_time_alg_acc - stat_time_read_acc - stat_time_write_acc));
+  LOG(NOTICE, "Total time for edge traversal: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc));
+  LOG(NOTICE, "Total time for edge traversal minus writing node distances: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc - stat_time_write_acc));
   LOG(NOTICE, "Total bytes read from ramcloud: %lu bytes", stat_bytes_read_acc);
   LOG(NOTICE, "Total nodes read from ramcloud: %lu nodes", stat_nodes_read_acc);
   LOG(NOTICE, "Average bytes per node: %lu bytes/node", stat_bytes_read_acc/stat_nodes_read_acc);
