@@ -1,7 +1,7 @@
 import sys
 import ramcloud
 
-COORDINATOR_LOCATION = "infrc:host=192.168.1.101,port=12246"
+COORDINATOR_LOCATION = "infrc:host=192.168.1.101,port=12247"
 
 def main():
     # get connected to ramcloud
