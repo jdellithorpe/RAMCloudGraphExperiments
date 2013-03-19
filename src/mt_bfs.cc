@@ -1,5 +1,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/dynamic_bitset.hpp>
+#include <boost/tuple/tuple.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
 #include <algorithm>
@@ -21,7 +22,7 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
-std::queue<pair<string,string>> frontier_edge_q;
+std::queue<boost::tuple<string,string>> frontier_edge_q;
 std::queue<string> frontier_node_q;
 std::queue<pair<string,string>> node_distance_q;
 
@@ -153,7 +154,7 @@ void reader() {
     stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
     {
       boost::lock_guard<boost::mutex> lock(frontier_edge_q_mutex);
-      frontier_edge_q.push(pair<string,string>(node, edge_list));
+      frontier_edge_q.push(boost::tuple<string,string>(node, edge_list));
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_condvar.notify_all();
     }
@@ -265,8 +266,8 @@ int main(int argc, char* argv[]) {
       }
       stat_time_frontier_edge_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_wait_start;
 
-      node = frontier_edge_q.front().first;
-      edge_list_str = frontier_edge_q.front().second;
+      node = frontier_edge_q.front().get<0>();
+      edge_list_str = frontier_edge_q.front().get<1>();
       frontier_edge_q.pop();
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
