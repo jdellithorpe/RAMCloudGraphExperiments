@@ -24,7 +24,7 @@ boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
 std::queue<boost::tuple<string,string>> frontier_edge_q;
 std::queue<string> frontier_node_q;
-std::queue<pair<string,string>> node_distance_q;
+std::queue<boost::tuple<string,string>> node_distance_q;
 
 /// Global program termination bit
 bool terminate = false;
@@ -194,8 +194,8 @@ void writer() {
       }
       stat_time_node_distance_q_wait_acc += Cycles::rdtsc() - stat_time_node_distance_q_wait_start;
 
-      node = node_distance_q.front().first;
-      distance = node_distance_q.front().second;
+      node = node_distance_q.front().get<0>();
+      distance = node_distance_q.front().get<1>();
       node_distance_q.pop();
     }
     stat_time_node_distance_q_access_acc += Cycles::rdtsc() - stat_time_node_distance_q_access_start;
@@ -229,7 +229,7 @@ int main(int argc, char* argv[]) {
   stat_time_alg_start = Cycles::rdtsc();
   {
     boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
-    node_distance_q.push(pair<string,string>(source, boost::lexical_cast<string>(0)));
+    node_distance_q.push(boost::tuple<string,string>(source, boost::lexical_cast<string>(0)));
     node_distance_q_condvar.notify_all();
   }
 
@@ -289,7 +289,7 @@ int main(int argc, char* argv[]) {
         stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
         {
           boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
-          node_distance_q.push(pair<string,string>(*it, boost::lexical_cast<string>(node_dist+1)));
+          node_distance_q.push(boost::tuple<string,string>(*it, boost::lexical_cast<string>(node_dist+1)));
           stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
           node_distance_q_condvar.notify_all();
         }
