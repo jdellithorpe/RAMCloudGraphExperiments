@@ -22,8 +22,8 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
-std::queue<boost::tuple<string,string>> frontier_edge_q;
-std::queue<string> frontier_node_q;
+std::queue<boost::tuple<string,string,uint64_t>> frontier_edge_q;
+std::queue<boost::tuple<string,uint64_t>> frontier_node_q;
 std::queue<boost::tuple<string,string>> node_distance_q;
 
 /// Global program termination bit
@@ -109,6 +109,7 @@ void reader() {
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
   
   string node;
+  uint64_t node_dist;
   Buffer rc_read_buf;
   string edge_list;
   uint32_t buf_len;
@@ -129,7 +130,8 @@ void reader() {
       }
       stat_time_frontier_node_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_node_q_wait_start;
       
-      node = frontier_node_q.front();
+      node = frontier_node_q.front().get<0>();
+      node_dist = frontier_node_q.front().get<1>();
       frontier_node_q.pop();
     }
     stat_time_frontier_node_q_access_acc += Cycles::rdtsc() - stat_time_frontier_node_q_access_start;
@@ -154,7 +156,7 @@ void reader() {
     stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
     {
       boost::lock_guard<boost::mutex> lock(frontier_edge_q_mutex);
-      frontier_edge_q.push(boost::tuple<string,string>(node, edge_list));
+      frontier_edge_q.push(boost::tuple<string,string,uint64_t>(node, edge_list, node_dist));
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_condvar.notify_all();
     }
@@ -235,7 +237,7 @@ int main(int argc, char* argv[]) {
 
   {
     boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
-    frontier_node_q.push(source);
+    frontier_node_q.push(boost::tuple<string,uint64_t>(source, 0));
     frontier_node_q_condvar.notify_all();
   }
 
@@ -268,13 +270,13 @@ int main(int argc, char* argv[]) {
 
       node = frontier_edge_q.front().get<0>();
       edge_list_str = frontier_edge_q.front().get<1>();
+      node_dist = frontier_edge_q.front().get<2>();
       frontier_edge_q.pop();
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
     //node_dist = distance_map[node];
     //distance_map.erase(node);
-    node_dist = 0;    
 
     boost::split(edge_list_vec, edge_list_str, boost::is_any_of(" "));
 
@@ -298,7 +300,7 @@ int main(int argc, char* argv[]) {
         stat_time_frontier_node_q_enqueue_start = Cycles::rdtsc();
         {
           boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
-          frontier_node_q.push(*it);
+          frontier_node_q.push(boost::tuple<string,uint64_t>(*it, node_dist+1));
           stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
           frontier_node_q_condvar.notify_all();
         } 
