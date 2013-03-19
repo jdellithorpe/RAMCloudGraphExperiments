@@ -1,9 +1,11 @@
 #include <boost/algorithm/string.hpp>
+#include <boost/dynamic_bitset.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread.hpp>
 #include <algorithm>
 #include <iostream>
 #include <queue>
+#include <bitset>
 #include <set>
 #include <map>
 #include "Cycles.h"
@@ -200,14 +202,15 @@ void writer() {
 }
 
 int main(int argc, char* argv[]) {
-  std::set<string> seen_list;
+  //std::set<string> seen_list;
+  boost::dynamic_bitset<> seen_list(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(argv[2]));
   std::map<string,uint64_t> distance_map;
   string source(argv[1]);
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
   
   distance_map[source] = 0;
-  seen_list.insert(source);
+  seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(source));
 
   stat_time_alg_start = Cycles::rdtsc();
   {
@@ -260,9 +263,10 @@ int main(int argc, char* argv[]) {
     stat_time_edge_trav_start = Cycles::rdtsc();    
     for(std::vector<string>::iterator it = edge_list_vec.begin(); it != edge_list_vec.end(); ++it) {
       
-      if(seen_list.count(*it) == 0) {
+      if(!seen_list[boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it)]) {
         distance_map[*it] = node_dist+1;
-        seen_list.insert(*it);
+        seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it));
+
 
         stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
         {
