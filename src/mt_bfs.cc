@@ -255,16 +255,17 @@ int main(int argc, char* argv[]) {
       frontier_edge_q.pop();
     }
 
-    node_dist = distance_map[node];
-    distance_map.erase(node);
-    
+    //node_dist = distance_map[node];
+    //distance_map.erase(node);
+    node_dist = 0;    
+
     boost::split(edge_list_vec, edge_list_str, boost::is_any_of(" "));
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
     for(std::vector<string>::iterator it = edge_list_vec.begin(); it != edge_list_vec.end(); ++it) {
       
       if(!seen_list[boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it)]) {
-        distance_map[*it] = node_dist+1;
+        //distance_map[*it] = node_dist+1;
         seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it));
 
 
