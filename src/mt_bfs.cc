@@ -57,6 +57,12 @@ uint64_t stat_time_frontier_edge_q_enqueue_start;
 uint64_t stat_time_frontier_edge_q_enqueue_acc = 0;
 uint64_t stat_time_node_distance_q_enqueue_start;
 uint64_t stat_time_node_distance_q_enqueue_acc = 0;
+uint64_t stat_time_frontier_node_q_access_start;
+uint64_t stat_time_frontier_node_q_access_acc = 0;
+uint64_t stat_time_frontier_edge_q_access_start;
+uint64_t stat_time_frontier_edge_q_access_acc = 0;
+uint64_t stat_time_node_distance_q_access_start;
+uint64_t stat_time_node_distance_q_access_acc = 0;
 uint64_t stat_time_misc_start;
 uint64_t stat_time_misc_acc = 0;
 
@@ -83,6 +89,9 @@ void report_stats() {
   LOG(NOTICE, "Total time spent enqueueing in frontier node queue: %f seconds", Cycles::toSeconds(stat_time_frontier_node_q_enqueue_acc));
   LOG(NOTICE, "Total time spent enqueueing in frontier edge queue: %f seconds", Cycles::toSeconds(stat_time_frontier_edge_q_enqueue_acc));
   LOG(NOTICE, "Total time spent enqueueing in node distance queue: %f seconds", Cycles::toSeconds(stat_time_node_distance_q_enqueue_acc));
+  LOG(NOTICE, "Total time spent accessing frontier node queue: %f seconds", Cycles::toSeconds(stat_time_frontier_node_q_access_acc));
+  LOG(NOTICE, "Total time spent accessing frontier edge queue: %f seconds", Cycles::toSeconds(stat_time_frontier_edge_q_access_acc));
+  LOG(NOTICE, "Total time spent accessing node distance queue: %f seconds", Cycles::toSeconds(stat_time_node_distance_q_access_acc));  
   LOG(NOTICE, "Total time for edge traversal: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc));
   LOG(NOTICE, "Total time for edge traversal minus enqueue time: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc - stat_time_frontier_node_q_enqueue_acc - stat_time_node_distance_q_enqueue_acc)); 
   LOG(NOTICE, "Total time doing misc: %f seconds", Cycles::toSeconds(stat_time_misc_acc));
@@ -103,6 +112,7 @@ void reader() {
   string edge_list;
   uint32_t buf_len;
   while(true) {
+    stat_time_frontier_node_q_access_start = Cycles::rdtsc();
     {
       boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
       boost::unique_lock<boost::mutex> lock(frontier_node_q_mutex);
@@ -121,6 +131,7 @@ void reader() {
       node = frontier_node_q.front();
       frontier_node_q.pop();
     }
+    stat_time_frontier_node_q_access_acc += Cycles::rdtsc() - stat_time_frontier_node_q_access_start;
    
     stat_time_read_start = Cycles::rdtsc(); 
     try {
@@ -166,6 +177,7 @@ void writer() {
   string node;
   string distance;
   while(true) {
+    stat_time_node_distance_q_access_start = Cycles::rdtsc();
     {
       boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
       boost::unique_lock<boost::mutex> lock(node_distance_q_mutex);
@@ -185,6 +197,7 @@ void writer() {
       distance = node_distance_q.front().second;
       node_distance_q.pop();
     }
+    stat_time_node_distance_q_access_acc += Cycles::rdtsc() - stat_time_node_distance_q_access_start;
 
     stat_time_write_start = Cycles::rdtsc();
     try {
@@ -232,6 +245,8 @@ int main(int argc, char* argv[]) {
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
+    
+    stat_time_frontier_edge_q_access_start = Cycles::rdtsc();
     {
       stat_time_term_start = Cycles::rdtsc();
       boost::system_time const timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
@@ -254,6 +269,7 @@ int main(int argc, char* argv[]) {
       edge_list_str = frontier_edge_q.front().second;
       frontier_edge_q.pop();
     }
+    stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
     //node_dist = distance_map[node];
     //distance_map.erase(node);
