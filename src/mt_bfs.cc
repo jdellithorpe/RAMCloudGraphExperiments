@@ -218,9 +218,7 @@ void writer() {
 }
 
 int main(int argc, char* argv[]) {
-  //std::set<string> seen_list;
   boost::dynamic_bitset<> seen_list(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(argv[2]));
-  std::map<string,uint64_t> distance_map;
   string source(argv[1]);
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
@@ -275,16 +273,12 @@ int main(int argc, char* argv[]) {
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
-    //node_dist = distance_map[node];
-    //distance_map.erase(node);
-
     boost::split(edge_list_vec, edge_list_str, boost::is_any_of(" "));
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
     for(std::vector<string>::iterator it = edge_list_vec.begin(); it != edge_list_vec.end(); ++it) {
       
       if(!seen_list[boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it)]) {
-        //distance_map[*it] = node_dist+1;
         seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it));
 
 
