@@ -113,7 +113,13 @@ void reader() {
   Buffer rc_read_buf;
   string edge_list;
   uint32_t buf_len;
+  size_t batch_size;
+  boost::tuple<string,uint64_t> read_q[MULTIREAD_REQ_MAX];    
+  MultiReadObject* requests[MULTIREAD_REQ_MAX];
   while(true) {
+    Tub<Buffer> values[MULTIREAD_REQ_MAX];
+    Tub<MultiReadObject> objects[MULTIREAD_REQ_MAX];
+
     stat_time_frontier_node_q_access_start = Cycles::rdtsc();
     {
       boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
@@ -129,34 +135,53 @@ void reader() {
         }
       }
       stat_time_frontier_node_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_node_q_wait_start;
-      
-      node = frontier_node_q.front().get<0>();
-      node_dist = frontier_node_q.front().get<1>();
-      frontier_node_q.pop();
+
+      batch_size = std::min(frontier_node_q.size(), MULTIREAD_REQ_MAX);
+      for(int i = 0; i < batch_size; i++) {
+        read_q[i] = frontier_node_q.front();
+        frontier_node_q.pop();
+      }
     }
     stat_time_frontier_node_q_access_acc += Cycles::rdtsc() - stat_time_frontier_node_q_access_start;
-   
+
+    for(int i = 0; i < batch_size; i++) {
+      objects[i].construct( graph_tableid, 
+                            read_q[i].get<0>().c_str(), 
+                            read_q[i].get<0>().length(),
+                            &values[i] );
+      requests[i] = objects[i].get();
+    }
+
     stat_time_read_start = Cycles::rdtsc(); 
     try {
-      client.read(  graph_tableid,
-                    node.c_str(),
-                    node.length(),
-                    &rc_read_buf );
+      client.multiRead(requests, batch_size);
+      //client.read(  graph_tableid,
+      //              node.c_str(),
+      //              node.length(),
+      //              &rc_read_buf );
+      //client.read(  graph_tableid,
+      //              read_q[0].get<0>().c_str(),
+      //              read_q[0].get<0>().length(),
+      //              values[0].get() );
     } catch(RAMCloud::ClientException& e) {
       continue;
     }
     stat_time_read_acc += Cycles::rdtsc() - stat_time_read_start;
-    stat_nodes_read_acc++;
 
-    buf_len = rc_read_buf.getTotalLength();
-    edge_list = string(static_cast<const char*>(rc_read_buf.getRange(0, buf_len)), buf_len);
-
-    stat_bytes_read_acc += buf_len;
-   
     stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
     {
       boost::lock_guard<boost::mutex> lock(frontier_edge_q_mutex);
-      frontier_edge_q.push(boost::tuple<string,string,uint64_t>(node, edge_list, node_dist));
+      for(int i = 0; i < batch_size; i++) {
+        if(values[i].get()) {
+          stat_nodes_read_acc++;
+          
+          buf_len = values[i].get()->getTotalLength();
+          edge_list = string(static_cast<const char*>(values[i].get()->getRange(0, buf_len)), buf_len);
+          stat_bytes_read_acc += buf_len;
+           
+          frontier_edge_q.push(boost::tuple<string,string,uint64_t>(read_q[i].get<0>(), edge_list, read_q[i].get<1>()));
+        }
+      }
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_condvar.notify_all();
     }
@@ -179,7 +204,12 @@ void writer() {
   
   string node;
   string distance;
+  size_t batch_size;
+  boost::tuple<string,string> write_q[MULTIWRITE_REQ_MAX];    
+  MultiWriteObject* requests[MULTIWRITE_REQ_MAX];
   while(true) {
+    Tub<MultiWriteObject> objects[MULTIWRITE_REQ_MAX];
+
     stat_time_node_distance_q_access_start = Cycles::rdtsc();
     {
       boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
@@ -195,25 +225,37 @@ void writer() {
         }
       }
       stat_time_node_distance_q_wait_acc += Cycles::rdtsc() - stat_time_node_distance_q_wait_start;
-
-      node = node_distance_q.front().get<0>();
-      distance = node_distance_q.front().get<1>();
-      node_distance_q.pop();
+      
+      batch_size = std::min(node_distance_q.size(), MULTIWRITE_REQ_MAX);
+      for(int i = 0; i < batch_size; i++) {
+        write_q[i] = node_distance_q.front();
+        node_distance_q.pop();
+      }
     }
     stat_time_node_distance_q_access_acc += Cycles::rdtsc() - stat_time_node_distance_q_access_start;
 
+    for(int i = 0; i < batch_size; i++) {
+      objects[i].construct( dist_tableid, 
+                            write_q[i].get<0>().c_str(), 
+                            write_q[i].get<0>().length(),
+                            write_q[i].get<1>().c_str(),
+                            write_q[i].get<1>().length() );
+      requests[i] = objects[i].get();
+    }
+
     stat_time_write_start = Cycles::rdtsc();
     try {
-      client.write( dist_tableid,
-                    node.c_str(),
-                    node.length(),
-                    distance.c_str() );
+      client.multiWrite(requests, batch_size);
+      //client.write( dist_tableid,
+      //              node.c_str(),
+      //              node.length(),
+      //              distance.c_str() );
     } catch(RAMCloud::ClientException& e) {
       fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
       return;
     }
     stat_time_write_acc += Cycles::rdtsc() - stat_time_write_start;
-    stat_nodes_write_acc++;
+    stat_nodes_write_acc += batch_size;
   }
 }
 
@@ -223,7 +265,6 @@ int main(int argc, char* argv[]) {
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
   
-  distance_map[source] = 0;
   seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(source));
 
   stat_time_alg_start = Cycles::rdtsc();
@@ -273,14 +314,15 @@ int main(int argc, char* argv[]) {
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
+    stat_time_misc_start = Cycles::rdtsc();
     boost::split(edge_list_vec, edge_list_str, boost::is_any_of(" "));
+    stat_time_misc_acc += Cycles::rdtsc() - stat_time_misc_start;
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
     for(std::vector<string>::iterator it = edge_list_vec.begin(); it != edge_list_vec.end(); ++it) {
       
       if(!seen_list[boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it)]) {
         seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(*it));
-
 
         stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
         {
