@@ -1,0 +1,5 @@
+package Sandy.ProtoBuf;
+
+message AdjacencyList {
+  repeated uint64 neighbor = 1;
+}
