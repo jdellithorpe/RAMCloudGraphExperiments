@@ -22,10 +22,13 @@ int main(int argc, char* argv[]) {
 
   po::options_description desc("Allowed options");
 
+  string input_format;
+  string input_file;
+
   desc.add_options()
       ("help", "produce help message")
-      ("input_format", po::value<string>()->required(), "set the input format")
-      ("input_file", po::value<string>()->required(), "specify the input file");
+      ("input_format", po::value<string>(&input_format)->required(), "set the input format (adj_list, edge_list)")
+      ("input_file", po::value<string>(&input_file)->required(), "specify the input file");
 
   po::variables_map vm;
 
@@ -58,45 +61,76 @@ int main(int argc, char* argv[]) {
 
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
 
-  std::fstream edge_list_file(argv[1], std::fstream::in);
+  std::fstream graph_filestream(input_file, std::fstream::in);
 
-  string edge_str;
-  std::vector<string> edge_vec;
-  AdjacencyList adj_list_pb;
-  string adj_list_str;
-  string src;
-  while(std::getline(edge_list_file, edge_str)) {
-    boost::split(edge_vec, edge_str, boost::is_any_of(" \t"));
-    if(!src.empty() and src != edge_vec[0]) {
+  if(input_format == "edge_list") {
+    string edge_str;
+    std::vector<string> edge_vec;
+    AdjacencyList adj_list_pb;
+    string adj_list_str;
+    string src;
+    while(std::getline(graph_filestream, edge_str)) {
+      boost::split(edge_vec, edge_str, boost::is_any_of(" \t"));
+      if(!src.empty() and src != edge_vec[0]) {
+        adj_list_pb.SerializeToString(&adj_list_str);
+        try {
+          client.write( graph_tableid,
+                        src.c_str(),
+                        src.length(),
+                        adj_list_str.c_str(),
+                        adj_list_str.length() );
+        } catch (RAMCloud::ClientException& e) {
+          fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+          return 1;
+        }
+        adj_list_pb.clear_neighbor();
+      }
+      src = edge_vec[0];
+      adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(edge_vec[1]));
+    }
+
+    if(!src.empty()) {
       adj_list_pb.SerializeToString(&adj_list_str);
       try {
         client.write( graph_tableid,
                       src.c_str(),
                       src.length(),
-                      adj_list_str.c_str(),
-                      adj_list_str.length() );
+                      adj_list_str.c_str() );
       } catch (RAMCloud::ClientException& e) {
         fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
         return 1;
       }
       adj_list_pb.clear_neighbor();
     }
-    src = edge_vec[0];
-    adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(edge_vec[1]));
-  }
-
-  if(!src.empty()) {
-    adj_list_pb.SerializeToString(&adj_list_str);
-    try {
-      client.write( graph_tableid,
-                    src.c_str(),
-                    src.length(),
-                    adj_list_str.c_str() );
-    } catch (RAMCloud::ClientException& e) {
-      fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
-      return 1;
+  } else if(input_format == "adj_list") {
+    string adj_str;
+    std::vector<string> adj_vec;
+    AdjacencyList adj_list_pb;
+    string adj_list_str;
+    string src;
+    while(std::getline(graph_filestream, adj_str)) {
+      boost::split(adj_vec, adj_str, boost::is_any_of(" "));
+      src = adj_vec[0];
+      for(int i = 1; i<adj_vec.size(); i++) {
+        adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
+      }
+      if(adj_list_pb.neighbor_size() > 0) {
+        adj_list_pb.SerializeToString(&adj_list_str);
+        try {
+          client.write( graph_tableid,
+                        src.c_str(),
+                        src.length(),
+                        adj_list_str.c_str() );
+        } catch (RAMCloud::ClientException& e) {
+          fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+          return 1;
+        }
+      }
+      adj_list_pb.clear_neighbor();
     }
-    adj_list_pb.clear_neighbor();
+  } else {
+    fprintf(stderr, "ERROR: Unrecognized value for input_format program option: %s\n", input_format.c_str());
+    return -1;
   }
 
   return 0;
