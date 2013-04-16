@@ -22,5 +22,9 @@ rd: rd.cc sandy.h adjacency_list.pb.o
 	g++ -std=c++0x -L../../ramcloud/obj.master -I/home/jdellit/ramcloud/src -I/home/jdellit/ramcloud/obj.master -I/home/jdellit/ramcloud/gtest/include -I/home/jdellit/ramcloud/logcabin -c -o rd.o rd.cc 
 	g++ -o rd rd.o adjacency_list.pb.o ../../ramcloud/obj.master/libramcloud.a -L../../ramcloud/obj.master -L/home/jdellit/local/lib -lpcrecpp -lboost_program_options -lprotobuf -lrt -lboost_filesystem -lboost_system -lboost_thread -lpthread -lssl -lcrypto -rdynamic -libverbs -lprofiler
 
+bfgg: bfgg.cc
+	g++ -std=c++0x -c -o bfgg.o bfgg.cc 
+	g++ -o bfgg bfgg.o 
+
 clean:
 	rm -f bfs mt_bfs reader rd adjacency_list.pb.* *.o *.out
