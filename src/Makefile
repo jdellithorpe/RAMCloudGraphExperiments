@@ -1,4 +1,4 @@
-TARGETS = bfs mt_bfs reader
+TARGETS = bfs mt_bfs reader rd bfgg
 
 all: $(TARGETS)
 
@@ -27,4 +27,4 @@ bfgg: bfgg.cc
 	g++ -o bfgg bfgg.o 
 
 clean:
-	rm -f bfs mt_bfs reader rd adjacency_list.pb.* *.o *.out
+	rm -f $(TARGETS) adjacency_list.pb.* *.o *.out
