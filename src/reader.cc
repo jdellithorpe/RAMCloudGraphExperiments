@@ -24,11 +24,15 @@ int main(int argc, char* argv[]) {
 
   string input_format;
   string input_file;
+  uint32_t server_span = 1;
+  bool verbose = false;
 
   desc.add_options()
       ("help", "produce help message")
-      ("input_format", po::value<string>(&input_format)->required(), "set the input format (adj_list, edge_list)")
-      ("input_file", po::value<string>(&input_file)->required(), "specify the input file");
+      ("verbose", "print additional messages")
+      ("input_format", po::value<string>(&input_format)->required(), "specify the input file format (adj_list, edge_list)")
+      ("input_file", po::value<string>(&input_file)->required(), "specify the input file")
+      ("server_span", po::value<uint32_t>(&server_span), "set the number of servers to spread the table across (default 1)" );
 
   po::variables_map vm;
 
@@ -40,6 +44,9 @@ int main(int argc, char* argv[]) {
       std::cout << desc << "\n";
       return 1;
     }
+
+    if(vm.count("verbose"))
+      verbose = true;
 
     po::notify(vm);
   } catch(po::required_option& e) {
@@ -57,7 +64,10 @@ int main(int argc, char* argv[]) {
   RamCloud client(COORDINATOR_LOCATION);
 
   client.dropTable(GRAPH_TABLE_NAME);
-  client.createTable(GRAPH_TABLE_NAME, boost::lexical_cast<uint32_t>(argv[2]));
+  client.createTable(GRAPH_TABLE_NAME, server_span);
+
+  if(verbose)
+    std::cout << prog_name << ": INFO: created table with server span set to: " << server_span << "\n";
 
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
 
@@ -95,7 +105,8 @@ int main(int argc, char* argv[]) {
         client.write( graph_tableid,
                       src.c_str(),
                       src.length(),
-                      adj_list_str.c_str() );
+                      adj_list_str.c_str(),
+                      adj_list_str.length() );
       } catch (RAMCloud::ClientException& e) {
         fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
         return 1;
@@ -108,6 +119,8 @@ int main(int argc, char* argv[]) {
     AdjacencyList adj_list_pb;
     string adj_list_str;
     string src;
+    uint64_t node_write_count = 0;
+    uint64_t bytes_written = 0;
     while(std::getline(graph_filestream, adj_str)) {
       boost::split(adj_vec, adj_str, boost::is_any_of(" "));
       src = adj_vec[0];
@@ -120,7 +133,12 @@ int main(int argc, char* argv[]) {
           client.write( graph_tableid,
                         src.c_str(),
                         src.length(),
-                        adj_list_str.c_str() );
+                        adj_list_str.c_str(),
+                        adj_list_str.length() );
+          node_write_count++;
+          bytes_written += adj_list_str.length();
+          if(verbose && (node_write_count%100000)==0)
+              std::cout << prog_name << ": INFO: wrote " << node_write_count << "th vertex to RAMCloud, total of " << bytes_written << "B written\n";
         } catch (RAMCloud::ClientException& e) {
           fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
           return 1;
