@@ -65,13 +65,10 @@ int main(int argc, char* argv[]) {
 
   RamCloud client(COORDINATOR_LOCATION);
 
-  client.dropTable(GRAPH_TABLE_NAME);
-  client.createTable(GRAPH_TABLE_NAME, server_span);
+  graph_tableid = client.createTable(GRAPH_TABLE_NAME, server_span);
 
   if(verbose)
     std::cout << prog_name << ": INFO: created table with server span set to: " << server_span << "\n";
-
-  graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
 
   std::fstream graph_filestream(input_file, std::fstream::in);
 
