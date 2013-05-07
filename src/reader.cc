@@ -23,8 +23,8 @@ int main(int argc, char* argv[]) {
   po::options_description desc("Allowed options");
 
   string input_format;
+  string ramcloud_format;
   string input_file;
-  uint32_t server_span = 1;
   bool verbose = false;
   uint32_t multiwrite_size = MULTIWRITE_REQ_MAX;
 
@@ -32,9 +32,9 @@ int main(int argc, char* argv[]) {
       ("help", "produce help message")
       ("verbose", "print additional messages")
       ("input_format", po::value<string>(&input_format)->required(), "specify the input file format (adj_list, edge_list)")
+      ("ramcloud_format", po::value<string>(&ramcloud_format)->required(), "specify the ramcloud internal format (protobuf, string)")
       ("input_file", po::value<string>(&input_file)->required(), "specify the input file")
-      ("server_span", po::value<uint32_t>(&server_span), "set the number of RAMCloud servers to spread the table across (default 1)" )
-      ("multiwrite_size", po::value<uint32_t>(&multiwrite_size), "set the number of objects to batch together in a write to RAMCloud (default/max 64)");
+      ("multiwrite_size", po::value<uint32_t>(&multiwrite_size), "set the number of objects to batch together in a write to RAMCloud (default/max 64, NOTE: multiWrite currently only implemented for input formats of type adj_list)");
 
   po::variables_map vm;
 
@@ -65,22 +65,38 @@ int main(int argc, char* argv[]) {
 
   RamCloud client(COORDINATOR_LOCATION);
 
-  graph_tableid = client.createTable(GRAPH_TABLE_NAME, server_span);
-
-  if(verbose)
-    std::cout << prog_name << ": INFO: created table with server span set to: " << server_span << "\n";
+  graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
 
   std::fstream graph_filestream(input_file, std::fstream::in);
 
   if(input_format == "edge_list") {
-    string edge_str;
-    std::vector<string> edge_vec;
-    AdjacencyList adj_list_pb;
-    string adj_list_str;
-    string src;
-    while(std::getline(graph_filestream, edge_str)) {
-      boost::split(edge_vec, edge_str, boost::is_any_of(" \t"));
-      if(!src.empty() and src != edge_vec[0]) {
+    if( ramcloud_format == "protobuf" ) {
+      string edge_str;
+      std::vector<string> edge_vec;
+      AdjacencyList adj_list_pb;
+      string adj_list_str;
+      string src;
+      while(std::getline(graph_filestream, edge_str)) {
+        boost::split(edge_vec, edge_str, boost::is_any_of(" \t"));
+        if(!src.empty() and src != edge_vec[0]) {
+          adj_list_pb.SerializeToString(&adj_list_str);
+          try {
+            client.write( graph_tableid,
+                          src.c_str(),
+                          src.length(),
+                          adj_list_str.c_str(),
+                          adj_list_str.length() );
+          } catch (RAMCloud::ClientException& e) {
+            fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+            return 1;
+          }
+          adj_list_pb.clear_neighbor();
+        }
+        src = edge_vec[0];
+        adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(edge_vec[1]));
+      }
+
+      if(!src.empty()) {
         adj_list_pb.SerializeToString(&adj_list_str);
         try {
           client.write( graph_tableid,
@@ -94,23 +110,12 @@ int main(int argc, char* argv[]) {
         }
         adj_list_pb.clear_neighbor();
       }
-      src = edge_vec[0];
-      adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(edge_vec[1]));
-    }
-
-    if(!src.empty()) {
-      adj_list_pb.SerializeToString(&adj_list_str);
-      try {
-        client.write( graph_tableid,
-                      src.c_str(),
-                      src.length(),
-                      adj_list_str.c_str(),
-                      adj_list_str.length() );
-      } catch (RAMCloud::ClientException& e) {
-        fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
-        return 1;
-      }
-      adj_list_pb.clear_neighbor();
+    } else if( ramcloud_format == "string" ) {
+      fprintf(stderr, "ERROR: input_format program option %s does not support ramcloud_format program option %s\n", input_format.c_str(), ramcloud_format.c_str());
+      return -1;
+    } else {
+      fprintf(stderr, "ERROR: Unrecognized value for ramcloud_format program option: %s\n", ramcloud_format.c_str());
+      return -1; 
     }
   } else if(input_format == "adj_list") {
     string adj_str;
@@ -129,10 +134,18 @@ int main(int argc, char* argv[]) {
       boost::split(adj_vec, adj_str, boost::is_any_of(" "));
       if(adj_vec.size() > 1) {
         src[multiwrite_queue_size] = adj_vec[0];
-        for(int i = 1; i<adj_vec.size(); i++) {
-          adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
+
+        if( ramcloud_format == "protobuf" ) {
+          for(int i = 1; i<adj_vec.size(); i++) {
+            adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
+          }
+          adj_list_pb.SerializeToString(&adj_list_str[multiwrite_queue_size]);
+        } else if( ramcloud_format == "string" ) {
+          adj_list_str[multiwrite_queue_size] = adj_str.substr(adj_vec[0].length()+1);
+        } else {
+          fprintf(stderr, "ERROR: Unrecognized value for ramcloud_format program option: %s\n", ramcloud_format.c_str());
+          return -1;
         }
-        adj_list_pb.SerializeToString(&adj_list_str[multiwrite_queue_size]);
 
         objects[multiwrite_queue_size].construct( graph_tableid,
                                                   src[multiwrite_queue_size].c_str(),
