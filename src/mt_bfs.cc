@@ -68,6 +68,7 @@ uint64_t stat_time_node_distance_q_access_start;
 uint64_t stat_time_node_distance_q_access_acc = 0;
 uint64_t stat_time_misc_start;
 uint64_t stat_time_misc_acc = 0;
+uint64_t stat_time_reporter_start;
 
 /**
  * Report program statistics
@@ -98,6 +99,23 @@ void report_stats() {
   LOG(NOTICE, "Total time for edge traversal: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc));
   LOG(NOTICE, "Total time for edge traversal minus enqueue time: %f seconds", Cycles::toSeconds(stat_time_edge_trav_acc - stat_time_frontier_node_q_enqueue_acc - stat_time_node_distance_q_enqueue_acc)); 
   LOG(NOTICE, "Total time doing misc: %f seconds", Cycles::toSeconds(stat_time_misc_acc));
+}
+
+/**
+ * Main function of the reporter thread
+ * Reports some stats in fixed intervals of time.
+ */
+void reporter() {
+  stat_time_reporter_start = Cycles::rdtsc();
+  while(true) {
+    sleep(REPORTER_NAP_TIME);
+    if(terminate)
+      return;
+    LOG(NOTICE, "-------------------- Reporter Output Start --------------------");
+    report_stats();
+    LOG(NOTICE, "Reporter time: %f seconds", Cycles::toSeconds(Cycles::rdtsc() - stat_time_reporter_start));
+    LOG(NOTICE, "-------------------- Reporter Output Stop --------------------");
+  }
 }
 
 /**
@@ -162,9 +180,20 @@ void reader() {
     }
     stat_time_read_acc += Cycles::rdtsc() - stat_time_read_start;
 
-    stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
     {
-      boost::lock_guard<boost::mutex> lock(frontier_edge_q_mutex);
+      boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
+      boost::unique_lock<boost::mutex> lock(frontier_edge_q_mutex);
+
+      while(frontier_edge_q.size() > FRONTIER_EDGE_Q_SIZE_MAX) {
+        if(!frontier_edge_q_condvar.timed_wait(lock, timeout)) {
+          if(terminate)
+            return;
+          else
+            timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
+        }
+      }
+    
+      stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
       for(int i = 0; i < batch_size; i++) {
         if(values[i].get()) {
           stat_nodes_read_acc++;
@@ -178,8 +207,8 @@ void reader() {
       }
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_condvar.notify_all();
+      stat_time_frontier_edge_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_enqueue_start; 
     }
-    stat_time_frontier_edge_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_enqueue_start;
   }
 }
 
@@ -191,9 +220,6 @@ void writer() {
   uint64_t dist_tableid;
   RamCloud client(COORDINATOR_LOCATION);
  
-  client.dropTable(DIST_TABLE_NAME);
-  client.createTable(DIST_TABLE_NAME);
-
   dist_tableid = client.getTableId(DIST_TABLE_NAME);
   
   string node;
@@ -256,12 +282,18 @@ void writer() {
 int main(int argc, char* argv[]) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
+  stat_time_misc_start = Cycles::rdtsc();
+
   boost::dynamic_bitset<> seen_list(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(argv[2]));
   string source(argv[1]);
+  
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
-  
+  boost::thread reporter_thread(reporter);
+
   seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(source));
+
+  stat_time_misc_acc += Cycles::rdtsc() - stat_time_misc_start;
 
   stat_time_alg_start = Cycles::rdtsc();
   {
@@ -295,6 +327,7 @@ int main(int argc, char* argv[]) {
           terminate = true;
           reader_thread.join();
           writer_thread.join();
+          reporter_thread.join();
           stat_time_term_acc += Cycles::rdtsc() - stat_time_term_start;
           report_stats();
           return 0;
