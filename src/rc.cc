@@ -40,18 +40,22 @@ int main(int argc, char* argv[]) {
   string cmd;
   string table_name;
   uint64_t server_span;
+  string key;
+  string value;
+  string format;
 
   desc.add_options()
         ("cmd", po::value<string>(&cmd)->required(), "command to run")
-        ("help", "produce help message")
-        ("verbose", "print additional messages")
-        ("table_name", po::value<string>(&table_name)->default_value("DefaultTable"), "name of table")
-        ("server_span", po::value<uint64_t>(&server_span)->default_value(1), "server span");
+        ("help,h", "produce help message")
+        ("verbose,v", "print additional messages")
+        ("table_name,t", po::value<string>(&table_name)->default_value("DefaultTable"), "name of table (default 'DefaultTable')")
+        ("server_span,s", po::value<uint64_t>(&server_span)->default_value(1), "server span (default 1)")
+        ("key,k", po::value<string>(&key)->default_value("DefaultKey"), "table key (default 'DefaultKey')")
+        ("value,v", po::value<string>(&value)->default_value("DefaultValue"), "table value (default 'DefaultValue')")
+        ("format,f", po::value<string>(&format)->default_value("DefaultFormat"), "ramcloud object format (default 'DefaultFormat')");
 
   po::positional_options_description positionalOptions;
   positionalOptions.add("cmd", 1);
-  positionalOptions.add("table_name", 1);
-  positionalOptions.add("server_span", 1);
 
   po::variables_map vm;
 
@@ -70,11 +74,33 @@ int main(int argc, char* argv[]) {
   }
   
   RamCloud client(COORDINATOR_LOCATION);
+  uint64_t table_id;
+  uint64_t buf_len;
+  Buffer read_buf;
+  AdjacencyList adj_list_pb; 
 
   switch(cmd_map[cmd]) {
   case cmd_rd:
     std::cout << "Executing read command...\n";
-    std::cout << "Oops! Command not yet implemented, sorry!\n";
+    
+    table_id = client.getTableId(table_name.c_str());
+    try {
+      client.read(  table_id,
+                    key.c_str(),
+                    key.length(),
+                    &read_buf );
+    } catch (RAMCloud::ClientException& e) {
+      fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+      return 1;
+    }
+    buf_len = read_buf.getTotalLength();
+    
+    if(format == "protobuf") {
+      adj_list_pb.ParseFromArray(read_buf.getRange(0, buf_len), buf_len);
+      std::cout << adj_list_pb.DebugString();
+    } else if(format == "string") {
+      std::cout << string(static_cast<const char*>(read_buf.getRange(0, buf_len)), buf_len) << "\n";
+    }
     break;
   case cmd_wr:
     std::cout << "Executing write command...\n";
