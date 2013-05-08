@@ -311,6 +311,8 @@ int main(int argc, char* argv[]) {
   string node;
   uint64_t node_dist;
   AdjacencyList adj_list_pb;
+  size_t batch_size;
+  boost::tuple<string,AdjacencyList,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
@@ -335,38 +337,49 @@ int main(int argc, char* argv[]) {
       }
       stat_time_frontier_edge_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_wait_start;
 
-      node = frontier_edge_q.front().get<0>();
-      adj_list_pb = frontier_edge_q.front().get<1>();
-      node_dist = frontier_edge_q.front().get<2>();
-      frontier_edge_q.pop();
+      batch_size = std::min(frontier_edge_q.size(), EDGE_BATCH_MAX);
+      for(int i = 0; i < batch_size; i++) {
+        edge_batch_q[i] = frontier_edge_q.front();
+        frontier_edge_q.pop();
+      }
+ 
+      //node = frontier_edge_q.front().get<0>();
+      //adj_list_pb = frontier_edge_q.front().get<1>();
+      //node_dist = frontier_edge_q.front().get<2>();
+      //frontier_edge_q.pop();
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
-    for(int i = 0; i < adj_list_pb.neighbor_size(); i++) {
-      uint64_t neighbor = adj_list_pb.neighbor(i);
-      if(!seen_list[neighbor]) {
-        seen_list.set(neighbor);
+    for(int i = 0; i < batch_size; i++) {
+      node = edge_batch_q[i].get<0>();
+      adj_list_pb = edge_batch_q[i].get<1>();
+      node_dist = edge_batch_q[i].get<2>();
+      for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
+        uint64_t neighbor = adj_list_pb.neighbor(j);
+        if(!seen_list[neighbor]) {
+          seen_list.set(neighbor);
 
-        string neighbor_str = boost::lexical_cast<string>(neighbor);
+          string neighbor_str = boost::lexical_cast<string>(neighbor);
 
-        stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
-        {
-          boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
-          node_distance_q.push(boost::tuple<string,string>(neighbor_str, boost::lexical_cast<string>(node_dist+1)));
-          stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
-          node_distance_q_condvar.notify_all();
+          stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
+          {
+            boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
+            node_distance_q.push(boost::tuple<string,string>(neighbor_str, boost::lexical_cast<string>(node_dist+1)));
+            stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
+            node_distance_q_condvar.notify_all();
+          }
+          stat_time_node_distance_q_enqueue_acc += Cycles::rdtsc() - stat_time_node_distance_q_enqueue_start;
+
+          stat_time_frontier_node_q_enqueue_start = Cycles::rdtsc();
+          {
+            boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
+            frontier_node_q.push(boost::tuple<string,uint64_t>(neighbor_str, node_dist+1));
+            stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
+            frontier_node_q_condvar.notify_all();
+          } 
+          stat_time_frontier_node_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_node_q_enqueue_start;
         }
-        stat_time_node_distance_q_enqueue_acc += Cycles::rdtsc() - stat_time_node_distance_q_enqueue_start;
-
-        stat_time_frontier_node_q_enqueue_start = Cycles::rdtsc();
-        {
-          boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
-          frontier_node_q.push(boost::tuple<string,uint64_t>(neighbor_str, node_dist+1));
-          stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
-          frontier_node_q_condvar.notify_all();
-        } 
-        stat_time_frontier_node_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_node_q_enqueue_start;
       }
     }
     stat_time_edge_trav_acc += Cycles::rdtsc() - stat_time_edge_trav_start; 
