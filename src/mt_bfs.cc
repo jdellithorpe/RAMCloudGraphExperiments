@@ -351,36 +351,31 @@ int main(int argc, char* argv[]) {
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
-    for(int i = 0; i < batch_size; i++) {
-      node = edge_batch_q[i].get<0>();
-      adj_list_pb = edge_batch_q[i].get<1>();
-      node_dist = edge_batch_q[i].get<2>();
-      for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
-        uint64_t neighbor = adj_list_pb.neighbor(j);
-        if(!seen_list[neighbor]) {
-          seen_list.set(neighbor);
+    {
+      boost::lock_guard<boost::mutex> ndq_lock(node_distance_q_mutex);
+      boost::lock_guard<boost::mutex> fnq_lock(frontier_node_q_mutex);
+ 
+      for(int i = 0; i < batch_size; i++) {
+        node = edge_batch_q[i].get<0>();
+        adj_list_pb = edge_batch_q[i].get<1>();
+        node_dist = edge_batch_q[i].get<2>();
+        for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
+          uint64_t neighbor = adj_list_pb.neighbor(j);
+          if(!seen_list[neighbor]) {
+            seen_list.set(neighbor);
 
-          string neighbor_str = boost::lexical_cast<string>(neighbor);
+            string neighbor_str = boost::lexical_cast<string>(neighbor);
 
-          stat_time_node_distance_q_enqueue_start = Cycles::rdtsc();
-          {
-            boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
-            node_distance_q.push(boost::tuple<string,string>(neighbor_str, boost::lexical_cast<string>(node_dist+1)));
-            stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
-            node_distance_q_condvar.notify_all();
-          }
-          stat_time_node_distance_q_enqueue_acc += Cycles::rdtsc() - stat_time_node_distance_q_enqueue_start;
-
-          stat_time_frontier_node_q_enqueue_start = Cycles::rdtsc();
-          {
-            boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
+            node_distance_q.push(boost::tuple<string,string>(neighbor_str, boost::lexical_cast<string>(node_dist+1))); 
             frontier_node_q.push(boost::tuple<string,uint64_t>(neighbor_str, node_dist+1));
-            stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
-            frontier_node_q_condvar.notify_all();
-          } 
-          stat_time_frontier_node_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_node_q_enqueue_start;
+          }
         }
       }
+
+      stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
+      stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
+      node_distance_q_condvar.notify_all();
+      frontier_node_q_condvar.notify_all(); 
     }
     stat_time_edge_trav_acc += Cycles::rdtsc() - stat_time_edge_trav_start; 
   }
