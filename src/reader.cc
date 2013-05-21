@@ -6,6 +6,7 @@
 #include <fstream>
 #include "RamCloud.h"
 #include "sandy.h"
+#include "reader.h"
 #include "adjacency_list.pb.h"
 
 using namespace RAMCloud;

@@ -13,6 +13,7 @@
 #include "ShortMacros.h"
 #include "RamCloud.h"
 #include "sandy.h"
+#include "mt_bfs.h"
 #include "adjacency_list.pb.h"
 
 using namespace RAMCloud;
