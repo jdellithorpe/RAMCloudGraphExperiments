@@ -1,0 +1,6 @@
+#ifndef SANDY_READER_H // <PROJECT>_<PATH>_<FILE>_H
+#define SANDY_READER_H
+
+#define MULTIWRITE_REQ_MAX (size_t)400
+
+#endif // SANDY_READER_H
