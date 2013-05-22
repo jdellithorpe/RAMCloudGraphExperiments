@@ -1,7 +1,7 @@
 #ifndef SANDY_MTBFS_H // <PROJECT>_<PATH>_<FILE>_H
 #define SANDY_MTBFS_H
 
-#define REPORTER_NAP_TIME 10
+#define REPORTER_NAP_TIME 1
 
 #define MULTIWRITE_REQ_MAX (size_t)400
 #define MULTIREAD_REQ_MAX (size_t)1000
