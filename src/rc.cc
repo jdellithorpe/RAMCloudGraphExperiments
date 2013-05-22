@@ -84,22 +84,48 @@ int main(int argc, char* argv[]) {
     std::cout << "Executing read command...\n";
     
     table_id = client.getTableId(table_name.c_str());
-    try {
-      client.read(  table_id,
-                    key.c_str(),
-                    key.length(),
-                    &read_buf );
-    } catch (RAMCloud::ClientException& e) {
-      fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
-      return 1;
-    }
-    buf_len = read_buf.getTotalLength();
-    
-    if(format == "protobuf") {
+  
+    if(format == "v3") {
+      uint64_t key_int = boost::lexical_cast<uint64_t>(key);
+      try {
+        client.read(  table_id,
+                      (char*)&key_int,
+                      sizeof(uint64_t),
+                      &read_buf );
+      } catch (RAMCloud::ClientException& e) {
+        fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+        return 1;
+      }
+      buf_len = read_buf.getTotalLength();
+      adj_list_pb.ParseFromArray(read_buf.getRange(0, buf_len), buf_len);
+      std::cout << adj_list_pb.DebugString();      
+    } else if(format == "v2") {
+      try {
+        client.read(  table_id,
+                      key.c_str(),
+                      key.length(),
+                      &read_buf );
+      } catch (RAMCloud::ClientException& e) {
+        fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+        return 1;
+      }
+      buf_len = read_buf.getTotalLength();
       adj_list_pb.ParseFromArray(read_buf.getRange(0, buf_len), buf_len);
       std::cout << adj_list_pb.DebugString();
-    } else if(format == "string") {
+    } else if(format == "v1") {
+      try {
+        client.read(  table_id,
+                      key.c_str(),
+                      key.length(),
+                      &read_buf );
+      } catch (RAMCloud::ClientException& e) {
+        fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+        return 1;
+      }
+      buf_len = read_buf.getTotalLength();
       std::cout << string(static_cast<const char*>(read_buf.getRange(0, buf_len)), buf_len) << "\n";
+    } else {
+      std::cout << "Oops! Format " << format << " not implemented yet!\n";
     }
     break;
   case cmd_wr:

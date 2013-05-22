@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
       ("help", "produce help message")
       ("verbose", "print additional messages")
       ("input_format", po::value<string>(&input_format)->required(), "specify the input file format (adj_list, edge_list)")
-      ("ramcloud_format", po::value<string>(&ramcloud_format)->required(), "specify the ramcloud internal format (protobuf, string)")
+      ("ramcloud_format", po::value<string>(&ramcloud_format)->required(), "specify the ramcloud internal format (v1:string objects and string keys, v2:protobuf objects and string keys, v3:protobuf objects and integer keys, v4: integer array objects and integer keys)")
       ("input_file", po::value<string>(&input_file)->required(), "specify the input file")
       ("multiwrite_size", po::value<uint32_t>(&multiwrite_size), "set the number of objects to batch together in a write to RAMCloud (default/max 64, NOTE: multiWrite currently only implemented for input formats of type adj_list)");
 
@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {
   std::fstream graph_filestream(input_file, std::fstream::in);
 
   if(input_format == "edge_list") {
-    if( ramcloud_format == "protobuf" ) {
+    if( ramcloud_format == "v2" ) {
       string edge_str;
       std::vector<string> edge_vec;
       AdjacencyList adj_list_pb;
@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
         }
         adj_list_pb.clear_neighbor();
       }
-    } else if( ramcloud_format == "string" ) {
+    } else if( ramcloud_format == "v1" ) {
       fprintf(stderr, "ERROR: input_format program option %s does not support ramcloud_format program option %s\n", input_format.c_str(), ramcloud_format.c_str());
       return -1;
     } else {
@@ -123,7 +123,8 @@ int main(int argc, char* argv[]) {
     std::vector<string> adj_vec;
     AdjacencyList adj_list_pb;
     string adj_list_str[MULTIWRITE_REQ_MAX];
-    string src[MULTIWRITE_REQ_MAX];
+    string src_str[MULTIWRITE_REQ_MAX];
+    uint64_t src_int[MULTIWRITE_REQ_MAX];
     uint64_t node_write_count = 0;
     uint64_t bytes_written = 0;
     uint64_t stat_time_write_start;
@@ -134,25 +135,41 @@ int main(int argc, char* argv[]) {
     while(std::getline(graph_filestream, adj_str)) {
       boost::split(adj_vec, adj_str, boost::is_any_of(" "));
       if(adj_vec.size() > 1) {
-        src[multiwrite_queue_size] = adj_vec[0];
-
-        if( ramcloud_format == "protobuf" ) {
+        if( ramcloud_format == "v3" ) {
+          src_int[multiwrite_queue_size] = boost::lexical_cast<uint64_t>(adj_vec[0]);
           for(int i = 1; i<adj_vec.size(); i++) {
             adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
           }
           adj_list_pb.SerializeToString(&adj_list_str[multiwrite_queue_size]);
-        } else if( ramcloud_format == "string" ) {
+          objects[multiwrite_queue_size].construct( graph_tableid,
+                                                    (char*)&src_int[multiwrite_queue_size],
+                                                    sizeof(uint64_t),
+                                                    adj_list_str[multiwrite_queue_size].c_str(),
+                                                    adj_list_str[multiwrite_queue_size].length() );
+        } else if( ramcloud_format == "v2" ) {
+          src_str[multiwrite_queue_size] = adj_vec[0];
+          for(int i = 1; i<adj_vec.size(); i++) {
+            adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
+          }
+          adj_list_pb.SerializeToString(&adj_list_str[multiwrite_queue_size]);
+          objects[multiwrite_queue_size].construct( graph_tableid,
+                                                    src_str[multiwrite_queue_size].c_str(),
+                                                    src_str[multiwrite_queue_size].length(),
+                                                    adj_list_str[multiwrite_queue_size].c_str(),
+                                                    adj_list_str[multiwrite_queue_size].length() );          
+        } else if( ramcloud_format == "v1" ) {
+          src_str[multiwrite_queue_size] = adj_vec[0];
           adj_list_str[multiwrite_queue_size] = adj_str.substr(adj_vec[0].length()+1);
+          objects[multiwrite_queue_size].construct( graph_tableid,
+                                                    src_str[multiwrite_queue_size].c_str(),
+                                                    src_str[multiwrite_queue_size].length(),
+                                                    adj_list_str[multiwrite_queue_size].c_str(),
+                                                    adj_list_str[multiwrite_queue_size].length() ); 
         } else {
           fprintf(stderr, "ERROR: Unrecognized value for ramcloud_format program option: %s\n", ramcloud_format.c_str());
           return -1;
         }
 
-        objects[multiwrite_queue_size].construct( graph_tableid,
-                                                  src[multiwrite_queue_size].c_str(),
-                                                  src[multiwrite_queue_size].length(),
-                                                  adj_list_str[multiwrite_queue_size].c_str(),
-                                                  adj_list_str[multiwrite_queue_size].length() );
         requests[multiwrite_queue_size] = objects[multiwrite_queue_size].get();
 
         node_write_count++;
