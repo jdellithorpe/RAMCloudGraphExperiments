@@ -123,6 +123,7 @@ int main(int argc, char* argv[]) {
     std::vector<string> adj_vec;
     AdjacencyList adj_list_pb;
     string adj_list_str[MULTIWRITE_REQ_MAX];
+    std::vector<uint64_t> adj_list_intvec[MULTIWRITE_REQ_MAX];
     string src_str[MULTIWRITE_REQ_MAX];
     uint64_t src_int[MULTIWRITE_REQ_MAX];
     uint64_t node_write_count = 0;
@@ -135,7 +136,25 @@ int main(int argc, char* argv[]) {
     while(std::getline(graph_filestream, adj_str)) {
       boost::split(adj_vec, adj_str, boost::is_any_of(" "));
       if(adj_vec.size() > 1) {
-        if( ramcloud_format == "v3" ) {
+        if( ramcloud_format == "v4" ) {        
+          src_int[multiwrite_queue_size] = boost::lexical_cast<uint64_t>(adj_vec[0]);
+          
+          uint64_t append_int;
+          append_int = (uint64_t)adj_vec.size()-1;
+          adj_list_str[multiwrite_queue_size].clear();          
+          adj_list_str[multiwrite_queue_size].append((char*)&append_int, sizeof(uint64_t));
+
+          for(int i = 1; i<adj_vec.size(); i++) {
+            append_int = boost::lexical_cast<uint64_t>(adj_vec[i]);
+            adj_list_str[multiwrite_queue_size].append((char*)&append_int, sizeof(uint64_t));
+          }
+
+          objects[multiwrite_queue_size].construct( graph_tableid,
+                                                    (char*)&src_int[multiwrite_queue_size],
+                                                    sizeof(uint64_t),
+                                                    adj_list_str[multiwrite_queue_size].c_str(),
+                                                    adj_list_str[multiwrite_queue_size].length() );
+        } else if( ramcloud_format == "v3" ) {
           src_int[multiwrite_queue_size] = boost::lexical_cast<uint64_t>(adj_vec[0]);
           for(int i = 1; i<adj_vec.size(); i++) {
             adj_list_pb.add_neighbor(boost::lexical_cast<uint64_t>(adj_vec[i]));
