@@ -25,9 +25,9 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
-std::queue<boost::tuple<string,AdjacencyList,uint64_t>> frontier_edge_q;
-std::queue<boost::tuple<string,uint64_t>> frontier_node_q;
-std::queue<boost::tuple<string,string>> node_distance_q;
+std::queue<boost::tuple<uint64_t,AdjacencyList,uint64_t>> frontier_edge_q;
+std::queue<boost::tuple<uint64_t,uint64_t>> frontier_node_q;
+std::queue<boost::tuple<uint64_t,uint64_t>> node_distance_q;
 
 /// Global program termination bit
 bool terminate = false;
@@ -135,13 +135,13 @@ void reader() {
   
   graph_tableid = client.getTableId(GRAPH_TABLE_NAME);
   
-  string node;
+  uint64_t node;
   uint64_t node_dist;
   Buffer rc_read_buf;
   AdjacencyList adj_list_pb;
   uint32_t buf_len;
   size_t batch_size;
-  boost::tuple<string,uint64_t> read_q[MULTIREAD_REQ_MAX];    
+  boost::tuple<uint64_t,uint64_t> read_q[MULTIREAD_REQ_MAX];    
   MultiReadObject* requests[MULTIREAD_REQ_MAX];
   while(true) {
     Tub<Buffer> values[MULTIREAD_REQ_MAX];
@@ -173,8 +173,8 @@ void reader() {
     
     for(int i = 0; i < batch_size; i++) {
       objects[i].construct( graph_tableid, 
-                            read_q[i].get<0>().c_str(), 
-                            read_q[i].get<0>().length(),
+                            (char*)&read_q[i].get<0>(), 
+                            sizeof(uint64_t),
                             &values[i] );
       requests[i] = objects[i].get();
     }
@@ -209,7 +209,7 @@ void reader() {
           adj_list_pb.ParseFromArray(values[i].get()->getRange(0, buf_len), buf_len);
           stat_bytes_read_acc += buf_len;
 
-          frontier_edge_q.push(boost::tuple<string,AdjacencyList,uint64_t>(read_q[i].get<0>(), adj_list_pb, read_q[i].get<1>()));
+          frontier_edge_q.push(boost::tuple<uint64_t,AdjacencyList,uint64_t>(read_q[i].get<0>(), adj_list_pb, read_q[i].get<1>()));
         }
       }
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
@@ -229,10 +229,10 @@ void writer() {
  
   dist_tableid = client.getTableId(DIST_TABLE_NAME);
   
-  string node;
-  string distance;
+  uint64_t node;
+  uint64_t distance;
   size_t batch_size;
-  boost::tuple<string,string> write_q[MULTIWRITE_REQ_MAX];    
+  boost::tuple<uint64_t,uint64_t> write_q[MULTIWRITE_REQ_MAX];    
   MultiWriteObject* requests[MULTIWRITE_REQ_MAX];
   while(true) {
     Tub<MultiWriteObject> objects[MULTIWRITE_REQ_MAX];
@@ -263,20 +263,16 @@ void writer() {
 
     for(int i = 0; i < batch_size; i++) {
       objects[i].construct( dist_tableid, 
-                            write_q[i].get<0>().c_str(), 
-                            write_q[i].get<0>().length(),
-                            write_q[i].get<1>().c_str(),
-                            write_q[i].get<1>().length() );
+                            (char*)&write_q[i].get<0>(), 
+                            sizeof(uint64_t),
+                            (char*)&write_q[i].get<1>(),
+                            sizeof(uint64_t) );
       requests[i] = objects[i].get();
     }
 
     stat_time_write_start = Cycles::rdtsc();
     try {
       client.multiWrite(requests, batch_size);
-      //client.write( dist_tableid,
-      //              node.c_str(),
-      //              node.length(),
-      //              distance.c_str() );
     } catch(RAMCloud::ClientException& e) {
       fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
       return;
@@ -289,9 +285,9 @@ void writer() {
 int main(int argc, char* argv[]) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
-
   boost::dynamic_bitset<> seen_list(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(argv[2]));
-  string source(argv[1]);
+
+  uint64_t source = boost::lexical_cast<uint64_t>(argv[1]);
   
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
@@ -302,21 +298,21 @@ int main(int argc, char* argv[]) {
   stat_time_alg_start = Cycles::rdtsc();
   {
     boost::lock_guard<boost::mutex> lock(node_distance_q_mutex);
-    node_distance_q.push(boost::tuple<string,string>(source, boost::lexical_cast<string>(0)));
+    node_distance_q.push(boost::tuple<uint64_t,uint64_t>(source, 0));
     node_distance_q_condvar.notify_all();
   }
 
   {
     boost::lock_guard<boost::mutex> lock(frontier_node_q_mutex);
-    frontier_node_q.push(boost::tuple<string,uint64_t>(source, 0));
+    frontier_node_q.push(boost::tuple<uint64_t,uint64_t>(source, 0));
     frontier_node_q_condvar.notify_all();
   }
 
-  string node;
+  uint64_t node;
   uint64_t node_dist;
   AdjacencyList adj_list_pb;
   size_t batch_size;
-  boost::tuple<string,AdjacencyList,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
+  boost::tuple<uint64_t,AdjacencyList,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
@@ -346,11 +342,6 @@ int main(int argc, char* argv[]) {
         edge_batch_q[i] = frontier_edge_q.front();
         frontier_edge_q.pop();
       }
- 
-      //node = frontier_edge_q.front().get<0>();
-      //adj_list_pb = frontier_edge_q.front().get<1>();
-      //node_dist = frontier_edge_q.front().get<2>();
-      //frontier_edge_q.pop();
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
@@ -363,23 +354,20 @@ int main(int argc, char* argv[]) {
         node = edge_batch_q[i].get<0>();
         adj_list_pb = edge_batch_q[i].get<1>();
         node_dist = edge_batch_q[i].get<2>();
-        for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
-          stat_time_misc3_start = Cycles::rdtsc();  
-          uint64_t neighbor = adj_list_pb.neighbor(j);
-          stat_time_misc3_acc += Cycles::rdtsc() - stat_time_misc3_start;
-          stat_time_misc1_start = Cycles::rdtsc();  
-          if(!seen_list[neighbor]) {
-            stat_time_misc2_start = Cycles::rdtsc();  
-            seen_list.set(neighbor);
-
-            string neighbor_str = boost::lexical_cast<string>(neighbor);
         
-            node_distance_q.push(boost::tuple<string,string>(neighbor_str, boost::lexical_cast<string>(node_dist+1))); 
-            frontier_node_q.push(boost::tuple<string,uint64_t>(neighbor_str, node_dist+1));
+        stat_time_misc1_start = Cycles::rdtsc();  
+        for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
+          uint64_t neighbor = adj_list_pb.neighbor(j);
+          if(!seen_list[neighbor]) {
+            seen_list.set(neighbor);
+            
+            stat_time_misc2_start = Cycles::rdtsc();  
+            node_distance_q.push(boost::tuple<uint64_t,uint64_t>(neighbor, node_dist+1)); 
+            frontier_node_q.push(boost::tuple<uint64_t,uint64_t>(neighbor, node_dist+1));
             stat_time_misc2_acc += Cycles::rdtsc() - stat_time_misc2_start;
           }
-          stat_time_misc1_acc += Cycles::rdtsc() - stat_time_misc1_start;
         }
+        stat_time_misc1_acc += Cycles::rdtsc() - stat_time_misc1_start;
       }
 
       stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
