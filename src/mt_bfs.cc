@@ -25,12 +25,16 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
-std::queue<boost::tuple<uint64_t,AdjacencyList,uint64_t>> frontier_edge_q;
+std::queue<boost::tuple<uint64_t,string,uint64_t>> frontier_edge_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> frontier_node_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> node_distance_q;
 
 /// Global program termination bit
 bool terminate = false;
+
+/// Termination indicators for threads
+bool reader_terminated = false;
+bool writer_terminated = false;
 
 /// Stat globals
 size_t stat_max_frontier_edge_q_size = 0;
@@ -38,6 +42,8 @@ size_t stat_max_frontier_node_q_size = 0;
 size_t stat_max_node_distance_q_size = 0;
 uint64_t stat_time_alg_start;
 uint64_t stat_time_alg_acc = 0;
+uint64_t stat_time_thread_join_start;
+uint64_t stat_time_thread_join_acc = 0;
 uint64_t stat_time_term_start;
 uint64_t stat_time_term_acc = 0;
 uint64_t stat_time_read_start;
@@ -73,6 +79,14 @@ uint64_t stat_time_misc2_start;
 uint64_t stat_time_misc2_acc = 0;
 uint64_t stat_time_misc3_start;
 uint64_t stat_time_misc3_acc = 0;
+uint64_t stat_time_misc4_start;
+uint64_t stat_time_misc4_acc = 0;
+uint64_t stat_time_misc5_start;
+uint64_t stat_time_misc5_acc = 0;
+uint64_t stat_time_misc6_start;
+uint64_t stat_time_misc6_acc = 0;
+uint64_t stat_time_misc7_start;
+uint64_t stat_time_misc7_acc = 0;
 uint64_t stat_time_reporter_start;
 
 /**
@@ -81,16 +95,22 @@ uint64_t stat_time_reporter_start;
  */
 void report_stats() {
   LOG(NOTICE, "Max frontier edge queue size: %d items", stat_max_frontier_edge_q_size); 
+  LOG(NOTICE, "Cur frontier edge queue size: %d items", frontier_edge_q.size()); 
   LOG(NOTICE, "Max frontier node queue size: %d items", stat_max_frontier_node_q_size);
+  LOG(NOTICE, "Cur frontier node queue size: %d items", frontier_node_q.size());
   LOG(NOTICE, "Max node distance queue size: %d items", stat_max_node_distance_q_size);
+  LOG(NOTICE, "Cur node distance queue size: %d items", node_distance_q.size());
   LOG(NOTICE, "Total time for algorithm execution: %f seconds", Cycles::toSeconds(stat_time_alg_acc));
   LOG(NOTICE, "Total time for program termination: %f seconds", Cycles::toSeconds(stat_time_term_acc));
+  LOG(NOTICE, "Total time for thread join: %f seconds", Cycles::toSeconds(stat_time_thread_join_acc));
   LOG(NOTICE, "Total time for reading graph edges: %f seconds", Cycles::toSeconds(stat_time_read_acc));
   LOG(NOTICE, "Total time for writing node distances: %f seconds", Cycles::toSeconds(stat_time_write_acc));
   LOG(NOTICE, "Total bytes read from ramcloud: %lu bytes", stat_bytes_read_acc);
   LOG(NOTICE, "Total nodes read from ramcloud: %lu nodes", stat_nodes_read_acc);
+  LOG(NOTICE, "Total dist written to ramcloud: %lu dists", stat_nodes_write_acc);
   LOG(NOTICE, "Average bytes read per node: %lu bytes/node", stat_bytes_read_acc/stat_nodes_read_acc);
   LOG(NOTICE, "Average time per node read: %f microseconds", Cycles::toSeconds(stat_time_read_acc) / (float)stat_nodes_read_acc * 1000000.0);
+  LOG(NOTICE, "Average time per node proc: %f microseconds", Cycles::toSeconds(stat_time_alg_acc) / (float)stat_nodes_read_acc * 1000000.0);
   LOG(NOTICE, "Average time for distance write: %f microseconds", Cycles::toSeconds(stat_time_write_acc) / (float)stat_nodes_write_acc * 1000000.0);
   LOG(NOTICE, "Total time spent waiting on frontier node queue: %f seconds", Cycles::toSeconds(stat_time_frontier_node_q_wait_acc));
   LOG(NOTICE, "Total time spent waiting on frontier edge queue: %f seconds", Cycles::toSeconds(stat_time_frontier_edge_q_wait_acc));
@@ -106,6 +126,13 @@ void report_stats() {
   LOG(NOTICE, "Total time doing misc1: %f seconds", Cycles::toSeconds(stat_time_misc1_acc));
   LOG(NOTICE, "Total time doing misc2: %f seconds", Cycles::toSeconds(stat_time_misc2_acc));
   LOG(NOTICE, "Total time doing misc3: %f seconds", Cycles::toSeconds(stat_time_misc3_acc));
+  LOG(NOTICE, "Total time doing misc4: %f seconds", Cycles::toSeconds(stat_time_misc4_acc));
+  LOG(NOTICE, "Total time doing misc5: %f seconds", Cycles::toSeconds(stat_time_misc5_acc));
+  LOG(NOTICE, "Total time doing misc6: %f seconds", Cycles::toSeconds(stat_time_misc6_acc));
+  LOG(NOTICE, "Total time doing misc7: %f seconds", Cycles::toSeconds(stat_time_misc7_acc));
+  LOG(NOTICE, "Program termination signal: %d", terminate);
+  LOG(NOTICE, "Reader thread terminated  : %d", reader_terminated);
+  LOG(NOTICE, "Writer thread terminated  : %d", writer_terminated);
 }
 
 /**
@@ -116,7 +143,7 @@ void reporter() {
   stat_time_reporter_start = Cycles::rdtsc();
   while(true) {
     sleep(REPORTER_NAP_TIME);
-    if(terminate)
+    if(terminate && reader_terminated && writer_terminated)
       return;
     LOG(NOTICE, "-------------------- Reporter Output Start --------------------");
     report_stats();
@@ -155,9 +182,10 @@ void reader() {
       stat_time_frontier_node_q_wait_start = Cycles::rdtsc();
       while(frontier_node_q.empty()) {
         if(!frontier_node_q_condvar.timed_wait(lock, timeout)) {
-          if(terminate)
+          if(terminate) {
+            reader_terminated = true;
             return;
-          else
+          } else
             timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
         }
       }
@@ -206,10 +234,9 @@ void reader() {
           stat_nodes_read_acc++;
           
           buf_len = values[i].get()->getTotalLength();
-          adj_list_pb.ParseFromArray(values[i].get()->getRange(0, buf_len), buf_len);
           stat_bytes_read_acc += buf_len;
 
-          frontier_edge_q.push(boost::tuple<uint64_t,AdjacencyList,uint64_t>(read_q[i].get<0>(), adj_list_pb, read_q[i].get<1>()));
+          frontier_edge_q.push(boost::tuple<uint64_t,string,uint64_t>(read_q[i].get<0>(), string(static_cast<const char*>(values[i].get()->getRange(0, buf_len)), buf_len), read_q[i].get<1>()));
         }
       }
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
@@ -245,9 +272,10 @@ void writer() {
       stat_time_node_distance_q_wait_start = Cycles::rdtsc();
       while(node_distance_q.empty()) {
         if(!node_distance_q_condvar.timed_wait(lock, timeout)) {
-          if(terminate)
+          if(terminate) {
+            writer_terminated = true;
             return;
-          else
+          } else
             timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
         }
       }
@@ -311,8 +339,9 @@ int main(int argc, char* argv[]) {
   uint64_t node;
   uint64_t node_dist;
   AdjacencyList adj_list_pb;
+  uint64_t* adj_list_intarray;
   size_t batch_size;
-  boost::tuple<uint64_t,AdjacencyList,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
+  boost::tuple<uint64_t,string,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
@@ -320,16 +349,20 @@ int main(int argc, char* argv[]) {
     stat_time_frontier_edge_q_access_start = Cycles::rdtsc();
     {
       stat_time_term_start = Cycles::rdtsc();
+      stat_time_misc2_start = Cycles::rdtsc();
       boost::system_time const timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
       boost::unique_lock<boost::mutex> lock(frontier_edge_q_mutex);
+      stat_time_misc2_acc += Cycles::rdtsc() - stat_time_misc2_start;
 
       stat_time_frontier_edge_q_wait_start = Cycles::rdtsc();
       while(frontier_edge_q.empty()) {
         if(!frontier_edge_q_condvar.timed_wait(lock, timeout)) {
           terminate = true;
+          stat_time_thread_join_start = Cycles::rdtsc();
           reader_thread.join();
           writer_thread.join();
           reporter_thread.join();
+          stat_time_thread_join_acc += Cycles::rdtsc() - stat_time_thread_join_start;
           stat_time_term_acc += Cycles::rdtsc() - stat_time_term_start;
           report_stats();
           return 0;
@@ -337,43 +370,51 @@ int main(int argc, char* argv[]) {
       }
       stat_time_frontier_edge_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_wait_start;
 
+      stat_time_misc1_start = Cycles::rdtsc();
       batch_size = std::min(frontier_edge_q.size(), EDGE_BATCH_MAX);
       for(int i = 0; i < batch_size; i++) {
         edge_batch_q[i] = frontier_edge_q.front();
         frontier_edge_q.pop();
       }
+      stat_time_misc1_acc += Cycles::rdtsc() - stat_time_misc1_start;
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
 
     stat_time_edge_trav_start = Cycles::rdtsc();    
     {
+      stat_time_misc3_start = Cycles::rdtsc();
       boost::lock_guard<boost::mutex> ndq_lock(node_distance_q_mutex);
       boost::lock_guard<boost::mutex> fnq_lock(frontier_node_q_mutex);
-      
+      stat_time_misc3_acc += Cycles::rdtsc() - stat_time_misc3_start;      
+
+      stat_time_misc4_start = Cycles::rdtsc();
       for(int i = 0; i < batch_size; i++) {
+        stat_time_misc5_start = Cycles::rdtsc();
         node = edge_batch_q[i].get<0>();
-        adj_list_pb = edge_batch_q[i].get<1>();
+        adj_list_intarray = (uint64_t*)edge_batch_q[i].get<1>().c_str();
         node_dist = edge_batch_q[i].get<2>();
-        
-        stat_time_misc1_start = Cycles::rdtsc();  
-        for(int j = 0; j < adj_list_pb.neighbor_size(); j++) {
-          uint64_t neighbor = adj_list_pb.neighbor(j);
+        stat_time_misc5_acc += Cycles::rdtsc() - stat_time_misc5_start;        
+
+        stat_time_misc6_start = Cycles::rdtsc();
+        for(int j = 0; j < adj_list_intarray[0]; j++) {
+          uint64_t neighbor = adj_list_intarray[j+1];
           if(!seen_list[neighbor]) {
             seen_list.set(neighbor);
             
-            stat_time_misc2_start = Cycles::rdtsc();  
             node_distance_q.push(boost::tuple<uint64_t,uint64_t>(neighbor, node_dist+1)); 
             frontier_node_q.push(boost::tuple<uint64_t,uint64_t>(neighbor, node_dist+1));
-            stat_time_misc2_acc += Cycles::rdtsc() - stat_time_misc2_start;
           }
         }
-        stat_time_misc1_acc += Cycles::rdtsc() - stat_time_misc1_start;
+        stat_time_misc6_acc += Cycles::rdtsc() - stat_time_misc6_start;
       }
+      stat_time_misc4_acc += Cycles::rdtsc() - stat_time_misc4_start;
 
+      stat_time_misc7_start = Cycles::rdtsc();
       stat_max_node_distance_q_size = std::max(stat_max_node_distance_q_size, node_distance_q.size());
       stat_max_frontier_node_q_size = std::max(stat_max_frontier_node_q_size, frontier_node_q.size());
       node_distance_q_condvar.notify_all();
       frontier_node_q_condvar.notify_all(); 
+      stat_time_misc7_acc += Cycles::rdtsc() - stat_time_misc7_start;
     }
     stat_time_edge_trav_acc += Cycles::rdtsc() - stat_time_edge_trav_start; 
   }
