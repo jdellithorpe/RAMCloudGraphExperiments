@@ -25,7 +25,7 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
-std::queue<boost::tuple<uint64_t,string,uint64_t>> frontier_edge_q;
+std::queue<boost::tuple<string,uint64_t>> frontier_edge_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> frontier_node_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> node_distance_q;
 
@@ -236,7 +236,7 @@ void reader() {
           buf_len = values[i].get()->getTotalLength();
           stat_bytes_read_acc += buf_len;
 
-          frontier_edge_q.push(boost::tuple<uint64_t,string,uint64_t>(read_q[i].get<0>(), string(static_cast<const char*>(values[i].get()->getRange(0, buf_len)), buf_len), read_q[i].get<1>()));
+          frontier_edge_q.push(boost::tuple<string,uint64_t>(string(static_cast<const char*>(values[i].get()->getRange(0, buf_len)), buf_len), read_q[i].get<1>()));
         }
       }
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
@@ -392,12 +392,11 @@ int main(int argc, char* argv[]) {
     frontier_node_q_condvar.notify_all();
   }
 
-  uint64_t node;
   uint64_t node_dist;
   AdjacencyList adj_list_pb;
   uint64_t* adj_list_intarray;
   size_t batch_size;
-  boost::tuple<uint64_t,string,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
+  boost::tuple<string,uint64_t> edge_batch_q[EDGE_BATCH_MAX];  
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
@@ -448,9 +447,8 @@ int main(int argc, char* argv[]) {
       stat_time_misc4_start = Cycles::rdtsc();
       for(int i = 0; i < batch_size; i++) {
         stat_time_misc5_start = Cycles::rdtsc();
-        node = edge_batch_q[i].get<0>();
-        adj_list_intarray = (uint64_t*)edge_batch_q[i].get<1>().c_str();
-        node_dist = edge_batch_q[i].get<2>();
+        adj_list_intarray = (uint64_t*)edge_batch_q[i].get<0>().c_str();
+        node_dist = edge_batch_q[i].get<1>();
         stat_time_misc5_acc += Cycles::rdtsc() - stat_time_misc5_start;        
 
         stat_time_misc6_start = Cycles::rdtsc();
