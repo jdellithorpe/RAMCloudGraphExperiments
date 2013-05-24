@@ -310,6 +310,60 @@ void writer() {
   }
 }
 
+void writer_sidekick() {
+  uint64_t dist_tableid;
+  RamCloud client(COORDINATOR_LOCATION);
+ 
+  dist_tableid = client.getTableId(DIST_TABLE_NAME);
+  
+  uint64_t node;
+  uint64_t distance;
+  size_t batch_size;
+  boost::tuple<uint64_t,uint64_t> write_q[MULTIWRITE_REQ_MAX];    
+  MultiWriteObject* requests[MULTIWRITE_REQ_MAX];
+  while(true) {
+    Tub<MultiWriteObject> objects[MULTIWRITE_REQ_MAX];
+
+    {
+      boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
+      boost::unique_lock<boost::mutex> lock(node_distance_q_mutex);
+
+      while(node_distance_q.empty()) {
+        if(!node_distance_q_condvar.timed_wait(lock, timeout)) {
+          if(terminate) {
+            return;
+          } else
+            timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
+        }
+      }
+      
+      batch_size = std::min(node_distance_q.size(), MULTIWRITE_REQ_MAX);
+      for(int i = 0; i < batch_size; i++) {
+        write_q[i] = node_distance_q.front();
+        node_distance_q.pop();
+      }
+    }
+
+    for(int i = 0; i < batch_size; i++) {
+      objects[i].construct( dist_tableid, 
+                            (char*)&write_q[i].get<0>(), 
+                            sizeof(uint64_t),
+                            (char*)&write_q[i].get<1>(),
+                            sizeof(uint64_t) );
+      requests[i] = objects[i].get();
+    }
+
+    try {
+      client.multiWrite(requests, batch_size);
+    } catch(RAMCloud::ClientException& e) {
+      fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
+      return;
+    }
+    stat_nodes_write_acc += batch_size;
+  }
+}
+
+
 int main(int argc, char* argv[]) {
   GOOGLE_PROTOBUF_VERIFY_VERSION;
 
@@ -319,6 +373,8 @@ int main(int argc, char* argv[]) {
   
   boost::thread reader_thread(reader);
   boost::thread writer_thread(writer);
+  boost::thread writer_sidekick_1_thread(writer_sidekick);
+  //boost::thread writer_sidekick_2_thread(writer_sidekick);
   boost::thread reporter_thread(reporter);
 
   seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(source));
@@ -361,6 +417,8 @@ int main(int argc, char* argv[]) {
           stat_time_thread_join_start = Cycles::rdtsc();
           reader_thread.join();
           writer_thread.join();
+          writer_sidekick_1_thread.join();
+          //writer_sidekick_2_thread.join();
           reporter_thread.join();
           stat_time_thread_join_acc += Cycles::rdtsc() - stat_time_thread_join_start;
           stat_time_term_acc += Cycles::rdtsc() - stat_time_term_start;
