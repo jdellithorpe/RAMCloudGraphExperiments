@@ -12,6 +12,7 @@
 #include "Cycles.h"
 #include "ShortMacros.h"
 #include "RamCloud.h"
+#include "SpinLock.h"
 #include "sandy.h"
 #include "mt_bfs.h"
 #include "adjacency_list.pb.h"
@@ -25,6 +26,9 @@ boost::condition_variable node_distance_q_condvar;
 boost::mutex frontier_edge_q_mutex;
 boost::mutex frontier_node_q_mutex;
 boost::mutex node_distance_q_mutex;
+SpinLock frontier_edge_q_lock;
+SpinLock frontier_node_q_lock;
+SpinLock node_distance_q_lock;
 std::queue<boost::tuple<string,uint64_t>> frontier_edge_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> frontier_node_q;
 std::queue<boost::tuple<uint64_t,uint64_t>> node_distance_q;
@@ -225,29 +229,17 @@ void reader() {
     }
     stat_time_read_acc += Cycles::rdtsc() - stat_time_read_start;
 
-    stat_time_misc2_start = Cycles::rdtsc();
-    {
-      boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
-      boost::unique_lock<boost::mutex> lock(frontier_edge_q_mutex);
-
-      while((frontier_edge_q.size() > FRONTIER_EDGE_Q_SIZE_MAX) || (frontier_edge_q_enqueue_ticket_number != queue_ticket_number)) {
-        if(!frontier_edge_q_condvar.timed_wait(lock, timeout)) {
-          if(terminate) {
-            fprintf(stderr, "ERROR: Reader thread terminated while waiting to enqueue edges in the frontier_edge_q\n"); 
-            return;
-          } else
-            timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
-        }
-      }
-    
+    while(true) {
+      std::lock_guard<SpinLock> guard(frontier_edge_q_lock);
+      if((frontier_edge_q.size() >= FRONTIER_EDGE_Q_SIZE_MAX) || (frontier_edge_q_enqueue_ticket_number != queue_ticket_number))
+        continue;
+      
       stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
       for(int i = 0; i < batch_size; i++) {
         if(values[i].get()) {
 
-          stat_time_misc3_start = Cycles::rdtsc();          
           buf_len = values[i].get()->getTotalLength();
           frontier_edge_q.push(boost::tuple<string,uint64_t>(string(static_cast<const char*>(values[i].get()->getRange(0, buf_len)), buf_len), read_q[i].get<1>()));
-          stat_time_misc3_acc += Cycles::rdtsc() - stat_time_misc3_start;
 
           stat_nodes_read_acc++;
           stat_bytes_read_acc += buf_len;
@@ -256,10 +248,10 @@ void reader() {
 
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_enqueue_ticket_number++;
-      frontier_edge_q_condvar.notify_all();
       stat_time_frontier_edge_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_enqueue_start; 
+      
+      break; 
     }
-    stat_time_misc2_acc += Cycles::rdtsc() - stat_time_misc2_start;
   }
 }
 
@@ -318,21 +310,13 @@ void reader_sidekick() {
     } catch(RAMCloud::ClientException& e) {
       continue;
     }
-
-    {
-      boost::system_time timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
-      boost::unique_lock<boost::mutex> lock(frontier_edge_q_mutex);
-
-      while((frontier_edge_q.size() > FRONTIER_EDGE_Q_SIZE_MAX) || (frontier_edge_q_enqueue_ticket_number != queue_ticket_number)) {
-        if(!frontier_edge_q_condvar.timed_wait(lock, timeout)) {
-          if(terminate) {
-            fprintf(stderr, "ERROR: Reader thread terminated while waiting to enqueue edges in the frontier_edge_q\n"); 
-            return;
-          } else
-            timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
-        }
-      }
     
+    while(true) {
+      std::lock_guard<SpinLock> guard(frontier_edge_q_lock);
+      if((frontier_edge_q.size() >= FRONTIER_EDGE_Q_SIZE_MAX) || (frontier_edge_q_enqueue_ticket_number != queue_ticket_number))
+        continue;
+      
+      stat_time_frontier_edge_q_enqueue_start = Cycles::rdtsc(); 
       for(int i = 0; i < batch_size; i++) {
         if(values[i].get()) {
 
@@ -346,7 +330,9 @@ void reader_sidekick() {
 
       stat_max_frontier_edge_q_size = std::max(stat_max_frontier_edge_q_size, frontier_edge_q.size());
       frontier_edge_q_enqueue_ticket_number++;
-      frontier_edge_q_condvar.notify_all();
+      stat_time_frontier_edge_q_enqueue_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_enqueue_start; 
+      
+      break; 
     }
   }
 }
@@ -479,10 +465,10 @@ int main(int argc, char* argv[]) {
   boost::thread reader_thread(reader);
   boost::thread reader_sidekick_1_thread(reader_sidekick);
   boost::thread reader_sidekick_2_thread(reader_sidekick);
-  boost::thread reader_sidekick_3_thread(reader_sidekick);
+  //boost::thread reader_sidekick_3_thread(reader_sidekick);
   boost::thread writer_thread(writer);
   boost::thread writer_sidekick_1_thread(writer_sidekick);
-  boost::thread writer_sidekick_2_thread(writer_sidekick);
+  //boost::thread writer_sidekick_2_thread(writer_sidekick);
   boost::thread reporter_thread(reporter);
 
   seen_list.set(boost::lexical_cast<boost::dynamic_bitset<>::size_type>(source));
@@ -508,44 +494,39 @@ int main(int argc, char* argv[]) {
   while(true) {
     stat_time_alg_acc += Cycles::rdtsc() - stat_time_alg_start;
     stat_time_alg_start = Cycles::rdtsc();
-    
-    stat_time_frontier_edge_q_access_start = Cycles::rdtsc();
-    {
-      stat_time_term_start = Cycles::rdtsc();
-      stat_time_misc2_start = Cycles::rdtsc();
-      boost::system_time const timeout = boost::get_system_time() + boost::posix_time::milliseconds(1000);
-      boost::unique_lock<boost::mutex> lock(frontier_edge_q_mutex);
-      stat_time_misc2_acc += Cycles::rdtsc() - stat_time_misc2_start;
+  
+    const uint64_t timeout = Cycles::rdtsc() + Cycles::fromSeconds(1);
 
-      stat_time_frontier_edge_q_wait_start = Cycles::rdtsc();
-      while(frontier_edge_q.empty()) {
-        if(!frontier_edge_q_condvar.timed_wait(lock, timeout)) {
+    stat_time_frontier_edge_q_access_start = Cycles::rdtsc();
+    while(true) { 
+      std::lock_guard<SpinLock> guard(frontier_edge_q_lock);
+      if(frontier_edge_q.empty()) {
+        if(Cycles::rdtsc() > timeout) {
           terminate = true;
           stat_time_thread_join_start = Cycles::rdtsc();
           reader_thread.join();
           reader_sidekick_1_thread.join();
           reader_sidekick_2_thread.join();
-          reader_sidekick_3_thread.join();
           writer_thread.join();
           writer_sidekick_1_thread.join();
-          writer_sidekick_2_thread.join();
           reporter_thread.join();
           stat_time_thread_join_acc += Cycles::rdtsc() - stat_time_thread_join_start;
-          stat_time_term_acc += Cycles::rdtsc() - stat_time_term_start;
           report_stats();
           return 0;
         }
-      }
-      stat_time_frontier_edge_q_wait_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_wait_start;
-
+        continue;
+      }   
+       
       batch_size = std::min(frontier_edge_q.size(), EDGE_BATCH_MAX);
       for(int i = 0; i < batch_size; i++) {
         edge_batch_q[i] = frontier_edge_q.front();
         frontier_edge_q.pop();
-      }
+      }      
+ 
+      break;
     }
     stat_time_frontier_edge_q_access_acc += Cycles::rdtsc() - stat_time_frontier_edge_q_access_start;
-
+  
     stat_time_edge_trav_start = Cycles::rdtsc();    
     {
       stat_time_misc3_start = Cycles::rdtsc();
