@@ -3,4 +3,6 @@
 
 #define MULTIWRITE_REQ_MAX (size_t)400
 
+#define REPORTER_NAP_TIME 1
+
 #endif // SANDY_READER_H
