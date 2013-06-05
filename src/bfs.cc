@@ -121,6 +121,15 @@ int main(int argc, char* argv[]) {
   uint32_t buf_len;
   std::vector<string> edge_list;
 
+  // warm up the read... the first one takes a long time
+  try {
+    client.read(  graph_tableid,
+                  source.c_str(),
+                  source.length(),
+                  &rc_read_buf );
+  } catch (RAMCloud::ClientException& e) {
+  }
+ 
   stat_time_alg_start = Cycles::rdtsc();
   while( !node_queue.empty() ) {
     stat_time_pop_start = Cycles::rdtsc();
