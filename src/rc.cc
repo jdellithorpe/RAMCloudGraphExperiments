@@ -6,11 +6,15 @@
 #include <fstream>
 #include <map>
 #include "RamCloud.h"
+#include "Cycles.h"
 #include "sandy.h"
 #include "adjacency_list.pb.h"
 
 using namespace RAMCloud;
 using namespace Sandy::ProtoBuf;
+
+uint64_t stat_time_read_start;
+uint64_t stat_time_read_acc = 0;
 
 enum Command {  cmd_undefined, 
                 cmd_rd,
@@ -103,6 +107,7 @@ int main(int argc, char* argv[]) {
         return 1;
       }
     } else if(key_format == "string") {
+      stat_time_read_start = Cycles::rdtsc();
       try {
         client.read(  table_id,
                       key.c_str(),
@@ -112,6 +117,9 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "RAMCloud exception: %s\n", e.str().c_str());
         return 1;
       }
+      stat_time_read_acc += Cycles::rdtsc() - stat_time_read_start;
+
+      std::cout << "Read took: " << Cycles::toNanoseconds(stat_time_read_acc) << "\n";
     } else {
       std::cout << "Oops! Format " << key_format << " not implemented yet!\n";
     }
