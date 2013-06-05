@@ -6,7 +6,7 @@
 #define MULTIWRITE_REQ_MAX (size_t)400
 #define MULTIREAD_REQ_MAX (size_t)1000
 
-#define FRONTIER_EDGE_Q_SIZE_MAX (size_t)1000000
+#define FRONTIER_EDGE_Q_SIZE_MAX (size_t)500000
 
 #define EDGE_BATCH_MAX (size_t)1000
 
