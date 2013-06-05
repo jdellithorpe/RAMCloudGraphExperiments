@@ -1,0 +1,10 @@
+#ifndef SANDY_IMAGE_LOADER_H // <PROJECT>_<PATH>_<FILE>_H
+#define SANDY_IMAGE_LOADER_H
+
+#define REPORTER_NAP_TIME 1
+
+#define MULTIWRITE_REQ_MAX 512
+
+#define READ_BUFFER_SIZE 131072 // uint64_t integers
+
+#endif // SANDY_IMAGE_LOADER_H
